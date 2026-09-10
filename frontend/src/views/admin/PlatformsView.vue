@@ -1,0 +1,21 @@
+<template>
+  <div>
+    <PageHeader eyebrow="Administration" title="发布平台" description="配置平台适配器与动态字段能力；发布页不会硬编码平台规则。"><template #actions><el-button type="primary" @click="$router.push('/admin/platforms/new')"><el-icon><Plus /></el-icon>新增平台</el-button></template></PageHeader>
+    <section class="surface"><div class="toolbar"><div class="toolbar-group"><el-input v-model="keyword" clearable placeholder="搜索平台名称或编码" :prefix-icon="Search" style="width: 250px" @keyup.enter="applySearch" @clear="applySearch" /><el-button @click="applySearch">搜索</el-button></div><span class="muted">共 {{ total }} 个平台</span></div>
+      <DataState :loading="loading" :error="error" :empty="!platforms.length" empty-text="尚未配置发布平台" @retry="load"><el-button type="primary" @click="$router.push('/admin/platforms/new')">新增平台</el-button><template #content><el-table :data="platforms"><el-table-column label="平台" min-width="210"><template #default="scope"><div class="platform-cell"><span class="platform-glyph">{{ scope.row.name.slice(0, 1).toUpperCase() }}</span><div><div class="item-title">{{ scope.row.name }}</div><div class="item-meta mono">{{ scope.row.code }}</div></div></div></template></el-table-column><el-table-column prop="adapter_type" label="适配器" min-width="150"><template #default="scope"><span class="mono">{{ scope.row.adapter_type || '—' }}</span></template></el-table-column><el-table-column label="动态字段" min-width="150"><template #default="scope">{{ scope.row.capabilities.fields?.length ?? 0 }} 个字段</template></el-table-column><el-table-column label="账号" min-width="100"><template #default="scope">{{ scope.row.accounts?.length ?? '—' }}</template></el-table-column><el-table-column label="状态" width="100"><template #default="scope"><el-switch v-model="scope.row.enabled" :loading="switchingId === scope.row.id" @change="toggle(scope.row)" /></template></el-table-column><el-table-column label="操作" width="150" fixed="right"><template #default="scope"><el-button text type="primary" @click="$router.push(`/admin/platforms/${scope.row.id}`)">配置</el-button><el-button text type="danger" @click="remove(scope.row)">删除</el-button></template></el-table-column></el-table></template></DataState>
+      <div v-if="total > pageSize" class="pagination-row"><el-pagination v-model:current-page="page" :page-size="pageSize" :total="total" layout="prev, pager, next" @current-change="load" /></div>
+    </section>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'; import { Plus, Search } from '@element-plus/icons-vue'; import { ElMessage, ElMessageBox } from 'element-plus'; import PageHeader from '@/components/PageHeader.vue'; import DataState from '@/components/DataState.vue'; import { deletePlatform, getAdminPlatforms, updatePlatform } from '@/api/platforms'; import type { PublishPlatform } from '@/types/platform'; import { getErrorMessage } from '@/utils/errors'
+const platforms = ref<PublishPlatform[]>([]); const loading = ref(true); const error = ref(''); const keyword = ref(''); const page = ref(1); const pageSize = 20; const total = ref(0); const switchingId = ref('')
+async function load() { loading.value = true; error.value = ''; try { const result = await getAdminPlatforms({ page: page.value, page_size: pageSize, keyword: keyword.value || undefined }); platforms.value = result.items; total.value = result.total } catch (reason) { error.value = getErrorMessage(reason, '平台列表加载失败') } finally { loading.value = false } }
+function applySearch() { page.value = 1; load() }
+async function toggle(platform: PublishPlatform) { switchingId.value = platform.id; try { await updatePlatform(platform.id, { enabled: platform.enabled }); ElMessage.success('平台状态已更新') } catch (reason) { platform.enabled = !platform.enabled; ElMessage.error(getErrorMessage(reason, '状态更新失败')) } finally { switchingId.value = '' } }
+async function remove(platform: PublishPlatform) { try { await ElMessageBox.confirm(`确定删除平台“${platform.name}”？关联账号可能无法继续发布。`, '删除平台', { type: 'warning', confirmButtonText: '确认删除' }); await deletePlatform(platform.id); ElMessage.success('平台已删除'); await load() } catch (reason) { if (reason !== 'cancel' && reason !== 'close') ElMessage.error(getErrorMessage(reason, '删除失败')) } }
+onMounted(load)
+</script>
+
+<style scoped>.platform-cell { display: flex; gap: 11px; align-items: center; }</style>
