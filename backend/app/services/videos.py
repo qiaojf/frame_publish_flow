@@ -5,7 +5,7 @@ from pathlib import Path
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.enums import AuditResult, PublishStatus, UserRole
+from app.core.enums import AuditResult, GenerationStatus, PublishStatus, UserRole
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.logging import logger
 from app.models import PublishTask, User, Video, VideoGenerationTask, VideoModel
@@ -20,12 +20,16 @@ class VideoService:
         statuses = list(db.scalars(select(PublishTask.status).where(PublishTask.video_id == video_id)))
         if not statuses:
             return "not_published"
-        if any(status in {PublishStatus.PENDING, PublishStatus.PUBLISHING} for status in statuses):
-            return "processing"
+        if any(status == PublishStatus.PUBLISHING for status in statuses):
+            return "publishing"
+        if any(status == PublishStatus.PENDING for status in statuses):
+            return "pending"
         if all(status == PublishStatus.SUCCESS for status in statuses):
             return "success"
         if any(status == PublishStatus.SUCCESS for status in statuses):
             return "partially_failed"
+        if all(status == PublishStatus.CANCELLED for status in statuses):
+            return "cancelled"
         return "failed"
 
     @classmethod
@@ -62,7 +66,7 @@ class VideoService:
         page: int,
         page_size: int,
         keyword: str | None = None,
-        status: str | None = None,
+        status: GenerationStatus | None = None,
     ) -> tuple[list[VideoOut], int]:
         filters = [Video.is_deleted.is_(False)]
         if user.role != UserRole.ADMIN:
@@ -127,3 +131,16 @@ class VideoService:
             raise NotFoundError("视频文件不存在", "VIDEO_FILE_NOT_FOUND")
         filename = f"{video.title[:80] or 'video'}.mp4"
         return path, filename, video.mime_type
+
+    @staticmethod
+    def public_stream_path(db: Session, video_id: uuid.UUID) -> tuple[Path, str]:
+        """Resolve a non-deleted video for the public platform-review endpoint."""
+        video = db.scalar(
+            select(Video).where(Video.id == video_id, Video.is_deleted.is_(False))
+        )
+        if video is None:
+            raise NotFoundError("视频不存在或已删除", "VIDEO_NOT_FOUND")
+        path = get_storage().resolve(video.storage_key)
+        if not path.is_file():
+            raise NotFoundError("视频文件不存在", "VIDEO_FILE_NOT_FOUND")
+        return path, video.mime_type

@@ -16,6 +16,7 @@ export interface PublishAccount {
   platform_id: string
   name: string
   account_identifier?: string
+  ig_user_id?: string
   enabled: boolean
   client_id_masked?: string
   client_secret_masked?: string
@@ -47,6 +48,7 @@ export interface PublishAccountInput {
   platform_id: string
   name: string
   account_identifier?: string
+  ig_user_id?: string
   enabled: boolean
   client_id?: string
   client_secret?: string

@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 TEST_ROOT = Path(__file__).resolve().parent
 DB_PATH = TEST_ROOT / "frameflow-test.db"
 STORAGE_PATH = TEST_ROOT / "test-storage"
+if DB_PATH.exists():
+    DB_PATH.unlink()
 os.environ["APP_ENV"] = "test"
 os.environ["DATABASE_URL"] = f"sqlite+pysqlite:///{DB_PATH.as_posix()}"
 os.environ["JWT_SECRET_KEY"] = "test-jwt-secret-key-with-at-least-32-characters"
@@ -27,6 +29,8 @@ from app.db.base import Base  # noqa: E402
 from app.db.session import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import (  # noqa: E402
+    ModelAccount,
+    ModelProvider,
     PublishAccount,
     PublishPlatform,
     User,
@@ -50,6 +54,8 @@ def clean_database() -> None:
             "publish_accounts",
             "publish_platforms",
             "video_models",
+            "model_accounts",
+            "model_providers",
             "users",
         ]:
             connection.exec_driver_sql(f"DELETE FROM {table_name}")
@@ -110,10 +116,31 @@ def make_model(db: Session) -> Callable[..., VideoModel]:
         image: bool = True,
         extra_config: dict | None = None,
     ) -> VideoModel:
+        provider = ModelProvider(
+            name=f"Provider {uuid.uuid4().hex[:6]}",
+            code=f"provider-{uuid.uuid4().hex}",
+            adapter_family="mock",
+            auth_type="none",
+            provider_capabilities={},
+            extra_config={},
+            enabled=True,
+        )
+        db.add(provider)
+        db.flush()
+        account = ModelAccount(
+            provider_id=provider.id,
+            name=f"Account {uuid.uuid4().hex[:6]}",
+            account_identifier=uuid.uuid4().hex,
+            credential_extra={},
+            extra_config={},
+            enabled=True,
+        )
+        db.add(account)
+        db.flush()
         model = VideoModel(
+            model_account_id=account.id,
             name=f"Model {uuid.uuid4().hex[:6]}",
             code=f"model-{uuid.uuid4().hex}",
-            provider="Test",
             adapter_type="mock_video",
             supports_text_to_video=text,
             supports_image_to_video=image,
@@ -123,6 +150,7 @@ def make_model(db: Session) -> Callable[..., VideoModel]:
                 "resolutions": ["720p"],
                 "max_images": 1,
             },
+            request_defaults={},
             extra_config=extra_config or {},
             enabled=enabled,
         )

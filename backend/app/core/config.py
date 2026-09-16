@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(".env", "../.env"),
+        env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     ffprobe_binary: str = "ffprobe"
     generation_poll_interval: int = 2
     generation_timeout: int = 120
+    minimax_api_base_url: str = "https://api.minimax.io"
+    minimax_poll_interval_seconds: int = 10
+    minimax_generation_timeout_seconds: int = 900
+    minimax_http_timeout_seconds: int = 60
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     auto_seed: bool = True
     default_admin_username: str = "admin"

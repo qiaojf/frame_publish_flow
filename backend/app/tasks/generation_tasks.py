@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.adapters.video_models import ModelAdapterFactory
-from app.adapters.video_models.base import GenerationRequest
+from app.adapters.video_models.base import GenerationRequest, VideoModelAdapterError
 from app.core.config import get_settings
 from app.core.enums import AuditResult, GenerationStatus, GenerationType
 from app.core.logging import logger
@@ -26,7 +26,12 @@ def run_generation_task(task_id: str) -> None:
     task_uuid = uuid.UUID(task_id)
     with SessionLocal() as db:
         task = db.get(VideoGenerationTask, task_uuid)
-        if task is None or task.status in {GenerationStatus.SUCCESS, GenerationStatus.CANCELLED}:
+        if task is None or task.status in {
+            GenerationStatus.SUCCESS,
+            GenerationStatus.FAILED,
+            GenerationStatus.CANCELLED,
+            GenerationStatus.TIMEOUT,
+        }:
             return
         model = db.get(VideoModel, task.model_id)
         if model is None:
@@ -35,9 +40,17 @@ def run_generation_task(task_id: str) -> None:
             task.error_message = "视频模型不存在"
             db.commit()
             return
+        if not model.enabled or not model.model_account.enabled or not model.model_account.provider.enabled:
+            task.status = GenerationStatus.FAILED
+            task.error_code = "MODEL_CONFIGURATION_DISABLED"
+            task.error_message = "模型、模型账号或模型服务商已停用"
+            task.completed_at = datetime.now(UTC)
+            db.commit()
+            return
         try:
             task.status = GenerationStatus.PROCESSING
-            task.started_at = datetime.now(UTC)
+            if task.started_at is None:
+                task.started_at = datetime.now(UTC)
             db.commit()
             adapter = ModelAdapterFactory.create(model)
             storage = get_storage()
@@ -52,29 +65,75 @@ def run_generation_task(task_id: str) -> None:
                 aspect_ratio=task.aspect_ratio,
                 resolution=task.resolution,
                 source_image_path=source_image_path,
+                source_image_url=task.source_image_url,
             )
-            if task.generation_type == GenerationType.IMAGE_TO_VIDEO:
-                provider_id = asyncio.run(adapter.create_image_to_video(request))
-            else:
-                provider_id = asyncio.run(adapter.create_text_to_video(request))
-            task.provider_task_id = provider_id
-            db.commit()
+            provider_id = task.provider_task_id
+            if not provider_id:
+                if task.generation_type == GenerationType.IMAGE_TO_VIDEO:
+                    provider_id = asyncio.run(adapter.create_image_to_video(request))
+                else:
+                    provider_id = asyncio.run(adapter.create_text_to_video(request))
+                task.provider_task_id = provider_id
+                db.commit()
+                if getattr(adapter, "deferred_polling", False):
+                    run_generation_task.apply_async(
+                        args=[task_id],
+                        countdown=getattr(adapter, "poll_interval_seconds", 2),
+                    )
+                    return
 
-            deadline = time.monotonic() + min(model.timeout_seconds, settings.generation_timeout)
-            while True:
-                provider_status = asyncio.run(adapter.get_task_status(provider_id))
-                if provider_status in {"success", "failed"}:
-                    break
-                if time.monotonic() >= deadline:
+            if getattr(adapter, "deferred_polling", False):
+                started_at = task.started_at
+                if started_at and started_at.tzinfo is None:
+                    started_at = started_at.replace(tzinfo=UTC)
+                timeout_seconds = min(
+                    model.timeout_seconds,
+                    getattr(adapter, "generation_timeout_seconds", None)
+                    or model.timeout_seconds,
+                )
+                if started_at and (datetime.now(UTC) - started_at).total_seconds() >= timeout_seconds:
                     task.status = GenerationStatus.TIMEOUT
-                    task.error_code = "GENERATION_TIMEOUT"
-                    task.error_message = "视频生成超时"
+                    task.error_code = getattr(adapter, "timeout_error_code", "GENERATION_TIMEOUT")
+                    task.error_message = getattr(adapter, "timeout_message", "视频生成超时")
                     task.completed_at = datetime.now(UTC)
                     db.commit()
                     return
-                time.sleep(max(1, settings.generation_poll_interval))
+                provider_status = asyncio.run(adapter.get_task_status(provider_id))
+                if provider_status not in {"success", "failed"}:
+                    task.status = (
+                        GenerationStatus.PENDING
+                        if provider_status == "pending"
+                        else GenerationStatus.PROCESSING
+                    )
+                    db.commit()
+                    run_generation_task.apply_async(
+                        args=[task_id],
+                        countdown=getattr(adapter, "poll_interval_seconds", 2),
+                    )
+                    return
+            else:
+                deadline = time.monotonic() + min(
+                    model.timeout_seconds, settings.generation_timeout
+                )
+                while True:
+                    provider_status = asyncio.run(adapter.get_task_status(provider_id))
+                    if provider_status in {"success", "failed"}:
+                        break
+                    if time.monotonic() >= deadline:
+                        task.status = GenerationStatus.TIMEOUT
+                        task.error_code = getattr(
+                            adapter, "timeout_error_code", "GENERATION_TIMEOUT"
+                        )
+                        task.error_message = getattr(adapter, "timeout_message", "视频生成超时")
+                        task.completed_at = datetime.now(UTC)
+                        db.commit()
+                        return
+                    time.sleep(max(1, settings.generation_poll_interval))
             if provider_status == "failed":
-                raise RuntimeError("Mock 模型配置为模拟生成失败")
+                raise VideoModelAdapterError(
+                    getattr(adapter, "task_failure_error_code", "GENERATION_FAILED"),
+                    getattr(adapter, "task_failure_message", "视频生成失败"),
+                )
 
             with tempfile.TemporaryDirectory(prefix="frameflow-generation-") as work:
                 work_dir = Path(work)
@@ -119,7 +178,7 @@ def run_generation_task(task_id: str) -> None:
                     "generation_succeeded",
                     task_id=str(task.id),
                     user_id=str(task.user_id),
-                    provider=model.provider,
+                    provider=model.model_account.provider.code,
                     video_id=str(video.id),
                 )
         except Exception as exc:
@@ -127,8 +186,12 @@ def run_generation_task(task_id: str) -> None:
             task = db.get(VideoGenerationTask, task_uuid)
             if task is not None:
                 task.status = GenerationStatus.FAILED
-                task.error_code = "GENERATION_FAILED"
-                task.error_message = str(exc)[:500] or "视频生成处理失败"
+                if isinstance(exc, VideoModelAdapterError):
+                    task.error_code = exc.error_code
+                    task.error_message = exc.safe_message
+                else:
+                    task.error_code = "GENERATION_FAILED"
+                    task.error_message = str(exc)[:500] or "视频生成处理失败"
                 task.completed_at = datetime.now(UTC)
                 add_audit_log(
                     db,
@@ -146,5 +209,5 @@ def run_generation_task(task_id: str) -> None:
             logger.exception(
                 "generation_failed",
                 task_id=task_id,
-                provider=model.provider,
+                provider=model.model_account.provider.code,
             )

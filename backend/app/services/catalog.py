@@ -1,3 +1,4 @@
+import re
 import uuid
 
 from sqlalchemy import func, or_, select
@@ -7,14 +8,21 @@ from sqlalchemy.orm import Session
 from app.core.enums import AuditResult
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.security import encrypt_secret
-from app.models import PublishAccount, PublishPlatform, User, VideoModel
+from app.models import ModelAccount, ModelProvider, PublishAccount, PublishPlatform, User, VideoModel
 from app.schemas.platform import (
     PublishAccountCreate,
     PublishAccountUpdate,
     PublishPlatformCreate,
     PublishPlatformUpdate,
 )
-from app.schemas.video_model import VideoModelCreate, VideoModelUpdate
+from app.schemas.video_model import (
+    ModelAccountCreate,
+    ModelAccountUpdate,
+    ModelProviderCreate,
+    ModelProviderUpdate,
+    VideoModelCreate,
+    VideoModelUpdate,
+)
 from app.services.audit import add_audit_log
 
 
@@ -28,6 +36,216 @@ def _commit_unique(db: Session, message: str, code: str) -> None:
 
 class CatalogService:
     @staticmethod
+    def list_model_providers(
+        db: Session,
+        *,
+        page: int,
+        page_size: int,
+        keyword: str | None = None,
+    ) -> tuple[list[ModelProvider], int]:
+        filters = []
+        if keyword:
+            pattern = f"%{keyword.strip()}%"
+            filters.append(
+                or_(
+                    ModelProvider.name.ilike(pattern),
+                    ModelProvider.code.ilike(pattern),
+                    ModelProvider.adapter_family.ilike(pattern),
+                )
+            )
+        total = db.scalar(select(func.count()).select_from(ModelProvider).where(*filters)) or 0
+        items = list(
+            db.scalars(
+                select(ModelProvider)
+                .where(*filters)
+                .order_by(ModelProvider.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        )
+        return items, total
+
+    @staticmethod
+    def get_model_provider(db: Session, provider_id: uuid.UUID) -> ModelProvider:
+        provider = db.get(ModelProvider, provider_id)
+        if provider is None:
+            raise NotFoundError("模型服务商不存在", "MODEL_PROVIDER_NOT_FOUND")
+        return provider
+
+    @classmethod
+    def create_model_provider(
+        cls, db: Session, payload: ModelProviderCreate, actor: User
+    ) -> ModelProvider:
+        provider = ModelProvider(id=uuid.uuid4(), **payload.model_dump())
+        db.add(provider)
+        add_audit_log(
+            db,
+            user_id=actor.id,
+            action="model_provider.create",
+            resource_type="model_provider",
+            resource_id=str(provider.id),
+            result=AuditResult.SUCCESS,
+        )
+        _commit_unique(db, "模型服务商编码已存在", "MODEL_PROVIDER_CODE_EXISTS")
+        db.refresh(provider)
+        return provider
+
+    @classmethod
+    def update_model_provider(
+        cls,
+        db: Session,
+        provider_id: uuid.UUID,
+        payload: ModelProviderUpdate,
+        actor: User,
+    ) -> ModelProvider:
+        provider = cls.get_model_provider(db, provider_id)
+        for key, value in payload.model_dump(exclude_unset=True).items():
+            setattr(provider, key, value)
+        add_audit_log(
+            db,
+            user_id=actor.id,
+            action="model_provider.update",
+            resource_type="model_provider",
+            resource_id=str(provider.id),
+            result=AuditResult.SUCCESS,
+        )
+        _commit_unique(db, "模型服务商编码已存在", "MODEL_PROVIDER_CODE_EXISTS")
+        db.refresh(provider)
+        return provider
+
+    @classmethod
+    def delete_model_provider(cls, db: Session, provider_id: uuid.UUID, actor: User) -> None:
+        provider = cls.get_model_provider(db, provider_id)
+        db.delete(provider)
+        add_audit_log(
+            db,
+            user_id=actor.id,
+            action="model_provider.delete",
+            resource_type="model_provider",
+            resource_id=str(provider_id),
+            result=AuditResult.SUCCESS,
+        )
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise ConflictError("服务商已有账号，请先停用", "MODEL_PROVIDER_IN_USE") from exc
+
+    @staticmethod
+    def list_model_accounts(
+        db: Session,
+        *,
+        page: int,
+        page_size: int,
+        keyword: str | None = None,
+        provider_id: uuid.UUID | None = None,
+    ) -> tuple[list[ModelAccount], int]:
+        filters = []
+        if provider_id:
+            filters.append(ModelAccount.provider_id == provider_id)
+        if keyword:
+            pattern = f"%{keyword.strip()}%"
+            filters.append(
+                or_(ModelAccount.name.ilike(pattern), ModelAccount.account_identifier.ilike(pattern))
+            )
+        total = db.scalar(select(func.count()).select_from(ModelAccount).where(*filters)) or 0
+        items = list(
+            db.scalars(
+                select(ModelAccount)
+                .where(*filters)
+                .order_by(ModelAccount.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        )
+        return items, total
+
+    @staticmethod
+    def get_model_account(db: Session, account_id: uuid.UUID) -> ModelAccount:
+        account = db.get(ModelAccount, account_id)
+        if account is None:
+            raise NotFoundError("模型账号不存在", "MODEL_ACCOUNT_NOT_FOUND")
+        return account
+
+    @classmethod
+    def create_model_account(
+        cls, db: Session, payload: ModelAccountCreate, actor: User
+    ) -> ModelAccount:
+        cls.get_model_provider(db, payload.provider_id)
+        values = payload.model_dump(exclude={"api_key", "access_token"})
+        account = ModelAccount(
+            id=uuid.uuid4(),
+            **values,
+            api_key_encrypted=encrypt_secret(payload.api_key),
+            access_token_encrypted=encrypt_secret(payload.access_token),
+        )
+        db.add(account)
+        add_audit_log(
+            db,
+            user_id=actor.id,
+            action="model_account.create",
+            resource_type="model_account",
+            resource_id=str(account.id),
+            result=AuditResult.SUCCESS,
+        )
+        db.commit()
+        db.refresh(account)
+        return account
+
+    @classmethod
+    def update_model_account(
+        cls,
+        db: Session,
+        account_id: uuid.UUID,
+        payload: ModelAccountUpdate,
+        actor: User,
+    ) -> ModelAccount:
+        account = cls.get_model_account(db, account_id)
+        target_provider = None
+        if payload.provider_id:
+            target_provider = cls.get_model_provider(db, payload.provider_id)
+        values = payload.model_dump(
+            exclude_unset=True, exclude={"provider_id", "api_key", "access_token"}
+        )
+        for key, value in values.items():
+            setattr(account, key, value)
+        if target_provider is not None:
+            account.provider = target_provider
+        if payload.api_key:
+            account.api_key_encrypted = encrypt_secret(payload.api_key)
+        if payload.access_token:
+            account.access_token_encrypted = encrypt_secret(payload.access_token)
+        add_audit_log(
+            db,
+            user_id=actor.id,
+            action="model_account.update",
+            resource_type="model_account",
+            resource_id=str(account.id),
+            result=AuditResult.SUCCESS,
+        )
+        db.commit()
+        db.refresh(account)
+        return account
+
+    @classmethod
+    def delete_model_account(cls, db: Session, account_id: uuid.UUID, actor: User) -> None:
+        account = cls.get_model_account(db, account_id)
+        db.delete(account)
+        add_audit_log(
+            db,
+            user_id=actor.id,
+            action="model_account.delete",
+            resource_type="model_account",
+            resource_id=str(account_id),
+            result=AuditResult.SUCCESS,
+        )
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise ConflictError("模型账号已被模型使用，请先停用", "MODEL_ACCOUNT_IN_USE") from exc
+
+    @staticmethod
     def list_models(
         db: Session,
         *,
@@ -36,20 +254,36 @@ class CatalogService:
         keyword: str | None = None,
         enabled_only: bool = False,
     ) -> tuple[list[VideoModel], int]:
-        filters = [VideoModel.enabled.is_(True)] if enabled_only else []
+        filters = (
+            [
+                VideoModel.enabled.is_(True),
+                ModelAccount.enabled.is_(True),
+                ModelProvider.enabled.is_(True),
+            ]
+            if enabled_only
+            else []
+        )
         if keyword:
             pattern = f"%{keyword.strip()}%"
             filters.append(
                 or_(
                     VideoModel.name.ilike(pattern),
                     VideoModel.code.ilike(pattern),
-                    VideoModel.provider.ilike(pattern),
+                    ModelProvider.name.ilike(pattern),
                 )
             )
-        total = db.scalar(select(func.count()).select_from(VideoModel).where(*filters)) or 0
+        total = db.scalar(
+            select(func.count())
+            .select_from(VideoModel)
+            .join(ModelAccount, VideoModel.model_account_id == ModelAccount.id)
+            .join(ModelProvider, ModelAccount.provider_id == ModelProvider.id)
+            .where(*filters)
+        ) or 0
         items = list(
             db.scalars(
                 select(VideoModel)
+                .join(ModelAccount, VideoModel.model_account_id == ModelAccount.id)
+                .join(ModelProvider, ModelAccount.provider_id == ModelProvider.id)
                 .where(*filters)
                 .order_by(VideoModel.created_at.desc())
                 .offset((page - 1) * page_size)
@@ -65,16 +299,57 @@ class CatalogService:
             raise NotFoundError("视频模型不存在", "MODEL_NOT_FOUND")
         return model
 
+    @staticmethod
+    def _legacy_provider(db: Session, provider_name: str, api_base_url: str | None = None) -> ModelProvider:
+        provider = db.scalar(select(ModelProvider).where(ModelProvider.name == provider_name))
+        if provider is not None:
+            return provider
+        base_code = re.sub(r"[^a-z0-9]+", "_", provider_name.lower()).strip("_") or "provider"
+        code = base_code[:72]
+        suffix = 2
+        while db.scalar(select(ModelProvider.id).where(ModelProvider.code == code)):
+            code = f"{base_code[:68]}_{suffix}"
+            suffix += 1
+        provider = ModelProvider(
+            id=uuid.uuid4(),
+            name=provider_name,
+            code=code,
+            adapter_family=code,
+            default_api_base_url=api_base_url,
+            auth_type="api_key",
+            provider_capabilities={},
+            extra_config={},
+            enabled=True,
+        )
+        db.add(provider)
+        return provider
+
     @classmethod
     def create_model(cls, db: Session, payload: VideoModelCreate, actor: User) -> VideoModel:
         if not payload.supports_text_to_video and not payload.supports_image_to_video:
             raise ValidationError("至少启用一种生成能力", "MODEL_CAPABILITY_REQUIRED")
-        values = payload.model_dump(exclude={"api_key"})
-        model = VideoModel(
-            id=uuid.uuid4(),
-            **values,
-            api_key_encrypted=encrypt_secret(payload.api_key),
+        account: ModelAccount
+        if payload.model_account_id:
+            account = cls.get_model_account(db, payload.model_account_id)
+        else:
+            provider_name = payload.provider or "Legacy Provider"
+            provider = cls._legacy_provider(db, provider_name, payload.api_base_url)
+            account = ModelAccount(
+                provider_id=provider.id,
+                name=f"{payload.name} Account",
+                account_identifier=payload.code,
+                api_base_url=payload.api_base_url,
+                api_key_encrypted=encrypt_secret(payload.api_key),
+                credential_extra={},
+                extra_config={},
+                enabled=True,
+            )
+            db.add(account)
+            db.flush()
+        values = payload.model_dump(
+            exclude={"model_account_id", "provider", "api_base_url", "api_key"}
         )
+        model = VideoModel(id=uuid.uuid4(), model_account_id=account.id, **values)
         db.add(model)
         add_audit_log(
             db,
@@ -97,11 +372,24 @@ class CatalogService:
         actor: User,
     ) -> VideoModel:
         model = cls.get_model(db, model_id)
-        values = payload.model_dump(exclude_unset=True, exclude={"api_key"})
+        values = payload.model_dump(
+            exclude_unset=True,
+            exclude={"model_account_id", "provider", "api_base_url", "api_key"},
+        )
+        target_account = None
+        if payload.model_account_id:
+            target_account = cls.get_model_account(db, payload.model_account_id)
         for key, value in values.items():
             setattr(model, key, value)
+        if target_account is not None:
+            model.model_account = target_account
+        account = model.model_account
+        if payload.provider:
+            account.provider_id = cls._legacy_provider(db, payload.provider, payload.api_base_url).id
+        if payload.api_base_url is not None:
+            account.api_base_url = payload.api_base_url
         if payload.api_key:
-            model.api_key_encrypted = encrypt_secret(payload.api_key)
+            account.api_key_encrypted = encrypt_secret(payload.api_key)
         if not model.supports_text_to_video and not model.supports_image_to_video:
             raise ValidationError("至少启用一种生成能力", "MODEL_CAPABILITY_REQUIRED")
         add_audit_log(

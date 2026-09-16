@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
+from app.api.videos import public_router as public_video_router
 from app.core.config import get_settings
 from app.core.exceptions import AppError
 from app.core.logging import configure_logging, logger
@@ -108,6 +109,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+app.include_router(public_video_router)
 app.include_router(api_router)
 Path(settings.storage_path).mkdir(parents=True, exist_ok=True)
 app.mount("/storage", StaticFiles(directory=settings.storage_path), name="storage")

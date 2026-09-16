@@ -14,7 +14,13 @@ from app.storage import get_storage
 from app.tasks.celery_app import celery_app
 
 
-def _mark_failed(task_id: uuid.UUID, error_code: str, message: str) -> None:
+def _mark_failed(
+    task_id: uuid.UUID,
+    error_code: str,
+    message: str,
+    *,
+    provider_container_id: str | None = None,
+) -> None:
     with SessionLocal() as db:
         task = db.get(PublishTask, task_id)
         if task is None:
@@ -22,6 +28,8 @@ def _mark_failed(task_id: uuid.UUID, error_code: str, message: str) -> None:
         task.status = PublishStatus.FAILED
         task.error_code = error_code
         task.error_message = message[:500]
+        if provider_container_id:
+            task.provider_container_id = provider_container_id
         task.completed_at = datetime.now(UTC)
         add_audit_log(
             db,
@@ -51,6 +59,10 @@ def run_publish_task(self, task_id: str) -> None:  # type: ignore[no-untyped-def
                 raise PermanentPublishError("视频不存在或已删除")
             if platform is None or account is None:
                 raise PermanentPublishError("发布平台或账号不存在")
+            if not platform.enabled or not account.enabled:
+                raise PermanentPublishError("发布平台或账号已停用")
+            if account.platform_id != platform.id:
+                raise PermanentPublishError("发布账号与平台不匹配")
             task.status = PublishStatus.PUBLISHING
             task.started_at = datetime.now(UTC)
             db.commit()
@@ -59,11 +71,16 @@ def run_publish_task(self, task_id: str) -> None:  # type: ignore[no-untyped-def
                 video_path=get_storage().resolve(video.storage_key),
                 title=task.title,
                 content=task.content,
+                description=task.description,
                 tags=task.tags,
+                publish_type=task.publish_type,
+                common_payload=task.common_payload,
+                platform_payload=task.platform_payload,
                 overrides=task.platform_overrides,
                 idempotency_key=task.idempotency_key,
             )
             result = asyncio.run(adapter.publish_video(request))
+            task.provider_container_id = result.provider_container_id
             task.platform_post_id = result.platform_post_id
             task.platform_post_url = result.platform_post_url
             if result.status == "processing":
@@ -100,7 +117,12 @@ def run_publish_task(self, task_id: str) -> None:  # type: ignore[no-untyped-def
             raise self.retry(exc=exc, countdown=min(60, 2 ** (self.request.retries + 1)))
         _mark_failed(task_uuid, "TEMPORARY_ERROR", "平台暂时不可用，自动重试次数已用尽")
     except PermanentPublishError as exc:
-        _mark_failed(task_uuid, "PUBLISH_REJECTED", str(exc))
+        _mark_failed(
+            task_uuid,
+            getattr(exc, "error_code", "PUBLISH_REJECTED"),
+            str(exc),
+            provider_container_id=getattr(exc, "container_id", None),
+        )
     except Exception:
         _mark_failed(task_uuid, "PUBLISH_FAILED", "发布处理失败，请检查平台配置")
         logger.exception("publish_failed", task_id=task_id)

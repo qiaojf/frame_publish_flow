@@ -1,30 +1,26 @@
 from collections.abc import Callable
 
-from app.adapters.publishing.base import (
-    PermanentPublishError,
-    PublishPlatformAdapter,
-    PublishRequest,
-    PublishResult,
-)
+from app.adapters.publishing.base import PublishPlatformAdapter
+from app.adapters.publishing.facebook import FacebookPublishAdapter
+from app.adapters.publishing.instagram import InstagramPublishAdapter
 from app.adapters.publishing.mock import MockPublishAdapter
+from app.adapters.publishing.x import XPublishAdapter
+from app.adapters.publishing.youtube import YouTubePublishAdapter
 from app.models import PublishAccount, PublishPlatform
-
-
-class UnconfiguredPublishAdapter(MockPublishAdapter):
-    def __init__(self, platform_name: str) -> None:
-        self.platform_name = platform_name
-
-    async def publish_video(self, request: PublishRequest) -> PublishResult:
-        raise PermanentPublishError(f"{self.platform_name} 真实适配器尚未配置，未执行外部发布")
 
 
 class PublishAdapterFactory:
     _registry: dict[str, Callable[[PublishPlatform, PublishAccount], PublishPlatformAdapter]] = {
         "mock_publish": lambda platform, account: MockPublishAdapter(account.extra_config),
-        "youtube": lambda platform, account: UnconfiguredPublishAdapter(platform.name),
-        "x": lambda platform, account: UnconfiguredPublishAdapter(platform.name),
-        "instagram": lambda platform, account: UnconfiguredPublishAdapter(platform.name),
-        "whatsapp": lambda platform, account: UnconfiguredPublishAdapter(platform.name),
+        "x_v2": XPublishAdapter,
+        "instagram_graph": InstagramPublishAdapter,
+        "youtube_data_api_v3": YouTubePublishAdapter,
+        "facebook_graph": FacebookPublishAdapter,
+        # Compatibility with v1 configuration values.
+        "x": XPublishAdapter,
+        "instagram": InstagramPublishAdapter,
+        "youtube": YouTubePublishAdapter,
+        "facebook": FacebookPublishAdapter,
     }
 
     @classmethod

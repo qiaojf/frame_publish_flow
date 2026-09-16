@@ -14,4 +14,5 @@ export async function createPublishTasks(payload: PublishTaskInput) {
 
 export const getPublishTasks = (params?: QueryParams) => apiGet<PageResult<PublishTask>>('/publish/tasks', { params })
 export const getPublishTask = (id: string) => apiGet<PublishTask>(`/publish/tasks/${id}`)
+export const getPublishedPost = (postId: string) => apiGet<PublishTask>(`/publish/tasks/posts/${encodeURIComponent(postId)}`)
 export const retryPublishTask = (id: string) => apiPost<PublishTask>(`/publish/tasks/${id}/retry`)

@@ -13,7 +13,7 @@
             <el-table-column label="发布账号" min-width="140"><template #default="scope">{{ scope.row.account_name || '默认账号' }}</template></el-table-column>
             <el-table-column label="状态" width="110"><template #default="scope"><StatusTag :status="scope.row.status" /></template></el-table-column>
             <el-table-column label="发布时间" min-width="165"><template #default="scope">{{ formatDate(scope.row.published_at || scope.row.created_at) }}</template></el-table-column>
-            <el-table-column label="结果" min-width="220"><template #default="scope"><a v-if="scope.row.publish_url" class="link-button" :href="scope.row.publish_url" target="_blank" rel="noopener">打开发布页面<el-icon><TopRight /></el-icon></a><span v-else-if="scope.row.error_message" class="error-cell">{{ scope.row.error_message }}</span><span v-else>—</span></template></el-table-column>
+            <el-table-column label="结果" min-width="220"><template #default="scope"><button v-if="isInternalUrl(scope.row.publish_url)" class="link-button" @click="$router.push(scope.row.publish_url)">打开发布页面<el-icon><TopRight /></el-icon></button><a v-else-if="scope.row.publish_url" class="link-button" :href="scope.row.publish_url" target="_blank" rel="noopener">打开平台页面<el-icon><TopRight /></el-icon></a><span v-else-if="scope.row.error_message" class="error-cell">{{ scope.row.error_message }}</span><span v-else>—</span></template></el-table-column>
             <el-table-column label="操作" width="110" fixed="right"><template #default="scope"><el-button v-if="scope.row.status === 'failed'" text type="primary" :loading="retryingId === scope.row.id" @click="retry(scope.row)">重新发布</el-button><span v-else>—</span></template></el-table-column>
           </el-table>
         </template>
@@ -24,7 +24,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { Promotion, Search, TopRight, VideoPlay } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import PageHeader from '@/components/PageHeader.vue'
@@ -41,14 +41,17 @@ const tasks = ref<PublishTask[]>([]); const platforms = ref<PublishPlatform[]>([
 const page = ref(1); const pageSize = 20; const total = ref(0)
 const filters = reactive<{ keyword: string; platform_id: string; status: string; dates: string[] }>({ keyword: '', platform_id: '', status: '', dates: [] })
 const statuses = [{ label: '等待中', value: 'pending' }, { label: '发布中', value: 'publishing' }, { label: '成功', value: 'success' }, { label: '失败', value: 'failed' }, { label: '已取消', value: 'cancelled' }]
+const pollInterval = Number(import.meta.env.VITE_POLL_INTERVAL_MS ?? 4000); let pollTimer: number | undefined
 
 async function load() {
   loading.value = true; error.value = ''
   try { const result = await getPublishTasks({ page: page.value, page_size: pageSize, keyword: filters.keyword || undefined, platform_id: filters.platform_id || undefined, status: filters.status || undefined, date_from: filters.dates[0], date_to: filters.dates[1] }); tasks.value = result.items; total.value = result.total }
   catch (reason) { error.value = getErrorMessage(reason, '发布记录加载失败') }
-  finally { loading.value = false }
+  finally { loading.value = false; schedulePoll() }
 }
+function schedulePoll() { window.clearTimeout(pollTimer); if (tasks.value.some((task) => ['pending', 'publishing'].includes(task.status))) pollTimer = window.setTimeout(load, pollInterval) }
 function applyFilters() { page.value = 1; load() }
+function isInternalUrl(value?: string) { return Boolean(value?.startsWith('/')) }
 async function retry(task: PublishTask) {
   retryingId.value = task.id
   try { await retryPublishTask(task.id); ElMessage.success(`已为 ${task.platform_name} 创建重试任务`); await load() }
@@ -56,6 +59,7 @@ async function retry(task: PublishTask) {
   finally { retryingId.value = '' }
 }
 onMounted(async () => { getPublishPlatforms().then((items) => { platforms.value = items }).catch(() => undefined); await load() })
+onBeforeUnmount(() => window.clearTimeout(pollTimer))
 </script>
 
 <style scoped>

@@ -17,7 +17,7 @@ def create_task(
     request: Request,
     db: DbSession,
     user: CurrentUser,
-    prompt: str = Form(...),
+    prompt: str = Form(""),
     model_id: uuid.UUID = Form(...),
     image: UploadFile | None = File(None),
     duration: int | None = Form(None),

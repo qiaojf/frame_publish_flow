@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Query, Response, status
 from sqlalchemy import select
 
+from app.adapters.publishing import PublishAdapterFactory
 from app.core.permissions import AdminUser, CurrentUser, DbSession
 from app.models import PublishAccount
 from app.schemas.common import PageResult, SuccessResponse
@@ -15,6 +16,7 @@ from app.schemas.platform import (
     PublishPlatformUpdate,
 )
 from app.services.catalog import CatalogService
+from app.schemas.video_model import AdapterTestResult
 
 public_router = APIRouter(prefix="/publish/platforms", tags=["Publish Platforms"])
 admin_platform_router = APIRouter(prefix="/admin/platforms", tags=["Admin / Publish Platforms"])
@@ -146,3 +148,25 @@ def update_account(
 def delete_account(account_id: uuid.UUID, db: DbSession, actor: AdminUser) -> Response:
     CatalogService.delete_account(db, account_id, actor)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@admin_account_router.post("/{account_id}/test", response_model=SuccessResponse[AdapterTestResult])
+def test_account(
+    account_id: uuid.UUID, db: DbSession, _: AdminUser
+) -> SuccessResponse[AdapterTestResult]:
+    account = CatalogService.get_account(db, account_id)
+    platform = CatalogService.get_platform(db, account.platform_id)
+    adapter = PublishAdapterFactory.create(platform, account)
+    configured, message, details = adapter.configuration_status()
+    if not (platform.enabled and account.enabled):
+        configured = False
+        message = "发布平台或账号已停用"
+        details = {**details, "disabled": True}
+    return SuccessResponse(
+        data=AdapterTestResult(
+            configured=configured,
+            adapter_type=platform.adapter_type,
+            message=message,
+            details=details,
+        )
+    )

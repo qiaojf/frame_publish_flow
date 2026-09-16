@@ -17,7 +17,11 @@ class PublishRequest:
     video_path: Path
     title: str
     content: str | None
+    description: str | None
     tags: list[str]
+    publish_type: str
+    common_payload: dict[str, Any]
+    platform_payload: dict[str, Any]
     overrides: dict[str, Any]
     idempotency_key: str
 
@@ -27,9 +31,14 @@ class PublishResult:
     status: str
     platform_post_id: str | None = None
     platform_post_url: str | None = None
+    provider_container_id: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class PublishPlatformAdapter(ABC):
+    def configuration_status(self) -> tuple[bool, str, dict[str, Any]]:
+        return True, "Adapter 已加载", {}
+
     @abstractmethod
     async def publish_video(self, request: PublishRequest) -> PublishResult:
         raise NotImplementedError

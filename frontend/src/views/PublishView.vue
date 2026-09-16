@@ -10,7 +10,7 @@
           <div class="surface-header"><div><h2>发布内容</h2><p>公共内容会用于所有目标平台</p></div></div>
           <div class="surface-body">
             <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
-              <el-form-item label="目标视频" prop="video_id"><el-select v-model="form.video_id" filterable placeholder="请选择要发布的视频" style="width: 100%" @change="syncVideoTitle"><el-option v-for="video in videos" :key="video.id" :label="video.title" :value="video.id"><span>{{ video.title }}</span><span class="option-code">{{ video.model_name }}</span></el-option></el-select></el-form-item>
+              <el-form-item label="目标视频" prop="video_id"><el-select v-model="form.video_id" filterable placeholder="请选择要发布的视频" style="width: 100%" @change="syncVideoSelection"><el-option v-for="video in videos" :key="video.id" :label="video.title" :value="video.id"><span>{{ video.title }}</span><span class="option-code">{{ video.model_name }}</span></el-option></el-select></el-form-item>
               <el-form-item label="公共标题" prop="title"><el-input v-model="form.title" maxlength="120" show-word-limit placeholder="输入各平台默认使用的标题" /></el-form-item>
               <el-form-item label="公共描述"><el-input v-model="form.description" type="textarea" :rows="5" maxlength="2000" show-word-limit placeholder="输入视频说明或发布正文" /></el-form-item>
               <el-form-item label="Tags / Hashtags"><el-select v-model="form.tags" multiple filterable allow-create default-first-option placeholder="输入后按回车添加" style="width: 100%" /></el-form-item>
@@ -37,7 +37,7 @@
                 <div v-if="isSelected(platform.id)" class="platform-card-body">
                   <el-form label-position="top">
                     <el-form-item label="发布账号" required><el-select v-model="accountIds[platform.id]" placeholder="选择已启用账号" style="width: 100%"><el-option v-for="account in enabledAccounts(platform)" :key="account.id" :label="account.name" :value="account.id"><span>{{ account.name }}</span><span class="option-code">{{ account.account_identifier }}</span></el-option></el-select></el-form-item>
-                    <el-switch v-if="platform.capabilities.fields?.length" v-model="overrideEnabled[platform.id]" active-text="覆盖公共内容" />
+                    <el-switch v-if="platform.capabilities.fields?.length" v-model="overrideEnabled[platform.id]" :disabled="requiresPublicVideoUrl(platform)" :active-text="requiresPublicVideoUrl(platform) ? '已自动填入公网视频 URL' : '覆盖公共内容'" />
                     <div v-if="overrideEnabled[platform.id]" class="override-panel"><DynamicCapabilityField v-for="field in platform.capabilities.fields" :key="field.key" v-model="overrides[platform.id][field.key]" :field="field" /></div>
                   </el-form>
                 </div>
@@ -80,10 +80,30 @@ const interval = Number(import.meta.env.VITE_POLL_INTERVAL_MS ?? 4000); let poll
 
 function isSelected(id: string) { return selectedPlatformIds.value.includes(id) }
 function enabledAccounts(platform: PublishPlatform) { return (platform.accounts ?? []).filter((item) => item.enabled) }
-function syncVideoTitle(id: string) { const video = videos.value.find((item) => item.id === id); if (video && !form.title) form.title = video.title }
+function requiresPublicVideoUrl(platform: PublishPlatform) { return platform.capabilities.requires_public_media_url === true || Boolean(platform.capabilities.fields?.some((field) => field.key === 'video_url')) }
+function buildPublicVideoUrl(videoId: string) { return new URL(`/videos-pub/${encodeURIComponent(videoId)}`, window.location.origin).toString() }
+function syncPlatformVideoUrl(platform: PublishPlatform) {
+  if (!overrides[platform.id]) overrides[platform.id] = {}
+  if (!requiresPublicVideoUrl(platform) || !form.video_id) return
+  overrides[platform.id].video_url = buildPublicVideoUrl(form.video_id)
+  overrideEnabled[platform.id] = true
+}
+function syncVideoSelection(id: string) {
+  const video = videos.value.find((item) => item.id === id)
+  if (video && !form.title) form.title = video.title
+  selectedPlatformIds.value.forEach((platformId) => {
+    const platform = platforms.value.find((item) => item.id === platformId)
+    if (platform) syncPlatformVideoUrl(platform)
+  })
+}
 
 watch(selectedPlatformIds, (ids) => {
-  ids.forEach((id) => { if (!overrides[id]) overrides[id] = {}; if (overrideEnabled[id] === undefined) overrideEnabled[id] = false })
+  ids.forEach((id) => {
+    if (!overrides[id]) overrides[id] = {}
+    if (overrideEnabled[id] === undefined) overrideEnabled[id] = false
+    const platform = platforms.value.find((item) => item.id === id)
+    if (platform) syncPlatformVideoUrl(platform)
+  })
 })
 
 async function load() {
@@ -93,7 +113,7 @@ async function load() {
   if (platformResult.status === 'fulfilled') platforms.value = platformResult.value.filter((item) => item.enabled)
   if (videoResult.status === 'rejected' || platformResult.status === 'rejected') loadError.value = '视频或平台数据加载失败，请确认后端服务已就绪。'
   const queryVideo = typeof route.query.video === 'string' ? route.query.video : ''
-  if (queryVideo && videos.value.some((item) => item.id === queryVideo)) { form.video_id = queryVideo; syncVideoTitle(queryVideo) }
+  if (queryVideo && videos.value.some((item) => item.id === queryVideo)) { form.video_id = queryVideo; syncVideoSelection(queryVideo) }
   loading.value = false
 }
 

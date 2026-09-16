@@ -34,12 +34,33 @@ class PublishingService:
         content: str | None,
         tags: list[str],
         overrides: dict[str, object],
+        publish_type: str,
         has_cover: bool,
     ) -> None:
+        forbidden_keys = {
+            "raw_body", "request_body", "headers", "authorization", "access_token",
+            "refresh_token", "client_secret", "api_key",
+        }
+        unsafe = {str(key).lower() for key in overrides if str(key).startswith("_") or str(key).lower() in forbidden_keys}
+        if unsafe:
+            raise ValidationError(
+                "平台覆盖字段包含内部字段、Secret 或原始第三方请求体",
+                "UNSAFE_PLATFORM_OVERRIDE",
+            )
         if platform.capabilities.get("supports_video") is False:
             raise ValidationError(f"{platform.name} 不支持视频发布", "PLATFORM_VIDEO_UNSUPPORTED")
         if has_cover and platform.capabilities.get("supports_cover") is False:
             raise ValidationError(f"{platform.name} 不支持自定义封面", "PLATFORM_COVER_UNSUPPORTED")
+        capability_name = {
+            "video": "supports_video",
+            "reel": "supports_reel",
+            "post": "supports_text",
+        }[publish_type]
+        if platform.capabilities.get(capability_name) is False:
+            raise ValidationError(
+                f"{platform.name} 不支持 {publish_type} 发布",
+                "PLATFORM_PUBLISH_TYPE_UNSUPPORTED",
+            )
         common = {"title": title, "description": content, "content": content, "tags": tags}
         for field in platform.capabilities.get("fields", []):
             if isinstance(field, str):
@@ -90,8 +111,10 @@ class PublishingService:
                     task.user_id != user.id
                     or task.video_id != payload.video_id
                     or task.title != payload.title
-                    or task.content != payload.description
+                    or task.content != payload.content
+                    or task.description != payload.description
                     or task.tags != payload.tags
+                    or task.publish_type != target.publish_type
                     or public_overrides != target.overrides
                 ):
                     raise ConflictError(
@@ -123,6 +146,7 @@ class PublishingService:
                 content=payload.description,
                 tags=payload.tags,
                 overrides=target.overrides,
+                publish_type=target.publish_type,
                 has_cover=cover is not None,
             )
             overrides = dict(target.overrides)
@@ -133,10 +157,14 @@ class PublishingService:
                 user_id=user.id,
                 platform_id=platform.id,
                 account_id=account.id,
+                publish_type=target.publish_type,
                 status=PublishStatus.PENDING,
                 title=payload.title,
-                content=payload.description,
+                content=payload.content,
+                description=payload.description,
                 tags=payload.tags,
+                common_payload=payload.common_payload(),
+                platform_payload=overrides,
                 platform_overrides=overrides,
                 idempotency_key=key,
             )
@@ -210,9 +238,28 @@ class PublishingService:
             task,
             video_title=video.title,
             video_thumbnail_url=video.thumbnail_url,
+            video_url=video.video_url,
             platform_name=platform.name,
             account_name=account.name,
         )
+
+    @classmethod
+    def get_by_platform_post_id(
+        cls,
+        db: Session,
+        platform_post_id: str,
+        user: User,
+    ) -> PublishTaskOut:
+        task = db.scalars(
+            select(PublishTask)
+            .where(PublishTask.platform_post_id == platform_post_id)
+            .order_by(PublishTask.created_at.desc())
+        ).first()
+        if task is None:
+            raise NotFoundError("发布结果不存在", "PUBLISHED_POST_NOT_FOUND")
+        if task.user_id != user.id and user.role != UserRole.ADMIN:
+            raise ForbiddenError("不能访问其他用户的发布结果")
+        return cls.to_out(db, task)
 
     @classmethod
     def list(
@@ -225,7 +272,7 @@ class PublishingService:
         keyword: str | None = None,
         platform_id: uuid.UUID | None = None,
         video_id: uuid.UUID | None = None,
-        status: str | None = None,
+        status: PublishStatus | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
     ) -> tuple[list[PublishTaskOut], int]:

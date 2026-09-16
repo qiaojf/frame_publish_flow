@@ -17,7 +17,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
 from app.core.enums import AuditResult, GenerationStatus, GenerationType, PublishStatus, UserRole
@@ -54,25 +54,80 @@ class User(TimestampMixin, Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class VideoModel(TimestampMixin, Base):
-    __tablename__ = "video_models"
-    __table_args__ = (Index("ix_video_models_enabled", "enabled"),)
+class ModelProvider(TimestampMixin, Base):
+    __tablename__ = "model_providers"
+    __table_args__ = (
+        Index("ix_model_providers_enabled", "enabled"),
+        Index("ix_model_providers_adapter_family", "adapter_family"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     code: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
-    provider: Mapped[str] = mapped_column(String(80), nullable=False)
-    adapter_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    adapter_family: Mapped[str] = mapped_column(String(80), nullable=False)
+    default_api_base_url: Mapped[str | None] = mapped_column(String(500))
+    default_api_version: Mapped[str | None] = mapped_column(String(80))
+    auth_type: Mapped[str] = mapped_column(String(80), default="api_key", nullable=False)
+    provider_capabilities: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, nullable=False)
+    extra_config: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    accounts: Mapped[list["ModelAccount"]] = relationship(back_populates="provider")
+
+
+class ModelAccount(TimestampMixin, Base):
+    __tablename__ = "model_accounts"
+    __table_args__ = (
+        Index("ix_model_accounts_provider_id", "provider_id"),
+        Index("ix_model_accounts_enabled", "enabled"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    provider_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("model_providers.id", ondelete="RESTRICT"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    account_identifier: Mapped[str | None] = mapped_column(String(255))
     api_base_url: Mapped[str | None] = mapped_column(String(500))
+    api_version: Mapped[str | None] = mapped_column(String(80))
     api_key_encrypted: Mapped[str | None] = mapped_column(Text)
+    access_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    project_id: Mapped[str | None] = mapped_column(String(255))
+    region: Mapped[str | None] = mapped_column(String(120))
+    service_account_ref: Mapped[str | None] = mapped_column(String(500))
+    credential_extra: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, nullable=False)
+    extra_config: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    provider: Mapped[ModelProvider] = relationship(back_populates="accounts")
+    video_models: Mapped[list["VideoModel"]] = relationship(back_populates="model_account")
+
+
+class VideoModel(TimestampMixin, Base):
+    __tablename__ = "video_models"
+    __table_args__ = (
+        Index("ix_video_models_model_account_id", "model_account_id"),
+        Index("ix_video_models_enabled", "enabled"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    model_account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("model_accounts.id", ondelete="RESTRICT"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    code: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    adapter_type: Mapped[str] = mapped_column(String(80), nullable=False)
     model_id: Mapped[str | None] = mapped_column(String(200))
     supports_text_to_video: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     supports_image_to_video: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     capabilities: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, nullable=False)
+    request_defaults: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, nullable=False)
     extra_config: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    model_account: Mapped[ModelAccount] = relationship(back_populates="video_models")
 
 
 class VideoGenerationTask(TimestampMixin, Base):
@@ -154,6 +209,8 @@ class PublishPlatform(TimestampMixin, Base):
     code: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     adapter_type: Mapped[str] = mapped_column(String(80), nullable=False)
     api_base_url: Mapped[str | None] = mapped_column(String(500))
+    api_version: Mapped[str | None] = mapped_column(String(80))
+    auth_type: Mapped[str] = mapped_column(String(80), default="oauth2", nullable=False)
     capabilities: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, nullable=False)
     extra_config: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
@@ -173,11 +230,16 @@ class PublishAccount(TimestampMixin, Base):
     )
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     account_identifier: Mapped[str | None] = mapped_column(String(255))
+    external_account_id: Mapped[str | None] = mapped_column(String(255))
+    page_id: Mapped[str | None] = mapped_column(String(255))
+    channel_id: Mapped[str | None] = mapped_column(String(255))
+    ig_user_id: Mapped[str | None] = mapped_column(String(255))
     client_id_encrypted: Mapped[str | None] = mapped_column(Text)
     client_secret_encrypted: Mapped[str | None] = mapped_column(Text)
     access_token_encrypted: Mapped[str | None] = mapped_column(Text)
     refresh_token_encrypted: Mapped[str | None] = mapped_column(Text)
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    authorized_scopes: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, nullable=False)
     extra_config: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
@@ -203,6 +265,7 @@ class PublishTask(TimestampMixin, Base):
     account_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("publish_accounts.id", ondelete="RESTRICT"), nullable=False
     )
+    publish_type: Mapped[str] = mapped_column(String(40), default="video", nullable=False)
     status: Mapped[PublishStatus] = mapped_column(
         Enum(PublishStatus, values_callable=lambda values: [item.value for item in values], native_enum=False),
         default=PublishStatus.PENDING,
@@ -210,8 +273,13 @@ class PublishTask(TimestampMixin, Base):
     )
     title: Mapped[str] = mapped_column(String(240), nullable=False)
     content: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
     tags: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, nullable=False)
+    common_payload: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, nullable=False)
+    platform_payload: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, nullable=False)
     platform_overrides: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, nullable=False)
+    provider_upload_id: Mapped[str | None] = mapped_column(String(255))
+    provider_container_id: Mapped[str | None] = mapped_column(String(255))
     platform_post_id: Mapped[str | None] = mapped_column(String(255))
     platform_post_url: Mapped[str | None] = mapped_column(String(1000))
     idempotency_key: Mapped[str] = mapped_column(String(160), unique=True, nullable=False)

@@ -16,6 +16,7 @@ export function getErrorMessage(error: unknown, fallback = '请求失败，请�
     }
     if (error.code === 'ECONNABORTED') return '请求超时，请检查服务状态后重试'
     if (!error.response) return '网络连接失败，请确认后端服务已启动'
+    if (error.response.status === 413) return '上传文件过大，请选择不超过 10 MB 的图片'
     return error.message || fallback
   }
   return error instanceof Error ? error.message : fallback

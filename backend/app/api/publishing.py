@@ -1,8 +1,9 @@
 import uuid
 
-from fastapi import APIRouter, File, Form, Header, Query, Request, UploadFile, status
+from fastapi import APIRouter, File, Form, Header, Path, Query, Request, UploadFile, status
 from pydantic import ValidationError as PydanticValidationError
 
+from app.core.enums import PublishStatus
 from app.core.exceptions import ValidationError
 from app.core.permissions import CurrentUser, DbSession
 from app.schemas.common import PageResult, SuccessResponse
@@ -46,7 +47,7 @@ def list_publish_tasks(
     keyword: str | None = None,
     platform_id: uuid.UUID | None = None,
     video_id: uuid.UUID | None = None,
-    status_filter: str | None = Query(None, alias="status"),
+    status_filter: PublishStatus | None = Query(None, alias="status"),
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> PageResult[PublishTaskOut]:
@@ -63,6 +64,17 @@ def list_publish_tasks(
         date_to=date_to,
     )
     return PageResult(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/posts/{platform_post_id}", response_model=SuccessResponse[PublishTaskOut])
+def get_published_post(
+    db: DbSession,
+    user: CurrentUser,
+    platform_post_id: str = Path(min_length=1, max_length=255),
+) -> SuccessResponse[PublishTaskOut]:
+    return SuccessResponse(
+        data=PublishingService.get_by_platform_post_id(db, platform_post_id, user)
+    )
 
 
 @router.get("/{task_id}", response_model=SuccessResponse[PublishTaskOut])

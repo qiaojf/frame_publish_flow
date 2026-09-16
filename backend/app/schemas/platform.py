@@ -13,12 +13,17 @@ class PublishAccountOut(BaseModel):
     platform_id: uuid.UUID
     name: str
     account_identifier: str | None = None
+    external_account_id: str | None = None
+    page_id: str | None = None
+    channel_id: str | None = None
+    ig_user_id: str | None = None
     enabled: bool
     client_id_masked: str | None = None
     client_secret_masked: str | None = None
     access_token_masked: str | None = None
     refresh_token_masked: str | None = None
     token_expires_at: datetime | None = None
+    authorized_scopes: list[str] = Field(default_factory=list)
     extra_config: dict[str, Any] | None = None
     created_at: datetime | None = None
 
@@ -29,12 +34,17 @@ class PublishAccountOut(BaseModel):
             platform_id=account.platform_id,
             name=account.name,
             account_identifier=account.account_identifier,
+            external_account_id=account.external_account_id,
+            page_id=account.page_id,
+            channel_id=account.channel_id,
+            ig_user_id=account.ig_user_id,
             enabled=account.enabled,
             client_id_masked=mask_secret(account.client_id_encrypted) if admin else None,
             client_secret_masked=mask_secret(account.client_secret_encrypted) if admin else None,
             access_token_masked=mask_secret(account.access_token_encrypted) if admin else None,
             refresh_token_masked=mask_secret(account.refresh_token_encrypted) if admin else None,
             token_expires_at=account.token_expires_at,
+            authorized_scopes=account.authorized_scopes,
             extra_config=account.extra_config if admin else None,
             created_at=account.created_at if admin else None,
         )
@@ -46,6 +56,8 @@ class PublishPlatformOut(BaseModel):
     code: str
     adapter_type: str | None = None
     api_base_url: str | None = None
+    api_version: str | None = None
+    auth_type: str | None = None
     description: str | None = None
     capabilities: dict[str, Any]
     enabled: bool
@@ -67,6 +79,8 @@ class PublishPlatformOut(BaseModel):
             code=platform.code,
             adapter_type=platform.adapter_type if admin else None,
             api_base_url=platform.api_base_url if admin else None,
+            api_version=platform.api_version,
+            auth_type=platform.auth_type,
             description=platform.description,
             capabilities=platform.capabilities,
             enabled=platform.enabled,
@@ -83,6 +97,8 @@ class PublishPlatformCreate(BaseModel):
     code: str = Field(min_length=2, max_length=80, pattern=r"^[A-Za-z0-9_.-]+$")
     adapter_type: str = Field(min_length=1, max_length=80)
     api_base_url: str | None = Field(default=None, max_length=500)
+    api_version: str | None = Field(default=None, max_length=80)
+    auth_type: str = Field(default="oauth2", min_length=1, max_length=80)
     description: str | None = None
     capabilities: dict[str, Any] = Field(default_factory=dict)
     extra_config: dict[str, Any] = Field(default_factory=dict)
@@ -94,6 +110,8 @@ class PublishPlatformUpdate(BaseModel):
     code: str | None = Field(default=None, min_length=2, max_length=80, pattern=r"^[A-Za-z0-9_.-]+$")
     adapter_type: str | None = Field(default=None, min_length=1, max_length=80)
     api_base_url: str | None = Field(default=None, max_length=500)
+    api_version: str | None = Field(default=None, max_length=80)
+    auth_type: str | None = Field(default=None, min_length=1, max_length=80)
     description: str | None = None
     capabilities: dict[str, Any] | None = None
     extra_config: dict[str, Any] | None = None
@@ -104,11 +122,16 @@ class PublishAccountCreate(BaseModel):
     platform_id: uuid.UUID
     name: str = Field(min_length=1, max_length=160)
     account_identifier: str | None = Field(default=None, max_length=255)
+    external_account_id: str | None = Field(default=None, max_length=255)
+    page_id: str | None = Field(default=None, max_length=255)
+    channel_id: str | None = Field(default=None, max_length=255)
+    ig_user_id: str | None = Field(default=None, max_length=255)
     client_id: str | None = None
     client_secret: str | None = None
     access_token: str | None = None
     refresh_token: str | None = None
     token_expires_at: datetime | None = None
+    authorized_scopes: list[str] = Field(default_factory=list)
     extra_config: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
 
@@ -117,10 +140,15 @@ class PublishAccountUpdate(BaseModel):
     platform_id: uuid.UUID | None = None
     name: str | None = Field(default=None, min_length=1, max_length=160)
     account_identifier: str | None = Field(default=None, max_length=255)
+    external_account_id: str | None = Field(default=None, max_length=255)
+    page_id: str | None = Field(default=None, max_length=255)
+    channel_id: str | None = Field(default=None, max_length=255)
+    ig_user_id: str | None = Field(default=None, max_length=255)
     client_id: str | None = None
     client_secret: str | None = None
     access_token: str | None = None
     refresh_token: str | None = None
     token_expires_at: datetime | None = None
+    authorized_scopes: list[str] | None = None
     extra_config: dict[str, Any] | None = None
     enabled: bool | None = None

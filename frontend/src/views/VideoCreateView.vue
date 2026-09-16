@@ -10,8 +10,8 @@
         <div class="surface-header"><div><h2>创作内容</h2><p>描述主体、环境、镜头与动作，画面会更稳定。</p></div><el-tag effect="plain">{{ modeLabel }}</el-tag></div>
         <div class="surface-body">
           <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
-            <el-form-item label="视频描述" prop="prompt">
-              <el-input v-model="form.prompt" class="prompt-input" type="textarea" maxlength="2000" show-word-limit resize="vertical" placeholder="例如：雨后的东京街道，镜头沿路面缓慢前移，霓虹倒影随着车流轻轻变化……" />
+            <el-form-item :label="promptLabel" prop="prompt">
+              <el-input v-model="form.prompt" class="prompt-input" type="textarea" :maxlength="promptMaxLength" show-word-limit resize="vertical" placeholder="例如：雨后的东京街道，镜头沿路面缓慢前移，霓虹倒影随着车流轻轻变化……" />
             </el-form-item>
             <el-form-item label="参考图片（可选）">
               <div v-if="previewUrl" class="image-preview">
@@ -60,7 +60,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Delete, InfoFilled, Picture, VideoPlay } from '@element-plus/icons-vue'
 import { ElMessage, type FormInstance, type FormRules, type UploadFile, type UploadInstance } from 'element-plus'
@@ -88,13 +88,34 @@ let pollTimer: number | undefined
 const interval = Number(import.meta.env.VITE_POLL_INTERVAL_MS ?? 4000)
 
 const form = reactive<{ prompt: string; model_id: string; duration?: number; aspect_ratio?: string; resolution?: string }>({ prompt: '', model_id: '' })
-const rules: FormRules<typeof form> = { prompt: [{ required: true, message: '请输入视频描述', trigger: 'blur' }, { min: 3, message: '请至少输入 3 个字符', trigger: 'blur' }] }
 const selectedModel = computed(() => models.value.find((item) => item.id === form.model_id))
 const durations = computed(() => selectedModel.value?.capabilities.durations ?? [])
 const aspectRatios = computed(() => selectedModel.value?.capabilities.aspect_ratios ?? [])
-const resolutions = computed(() => selectedModel.value?.capabilities.resolutions ?? [])
+const resolutions = computed(() => {
+  const available = selectedModel.value?.capabilities.resolutions ?? []
+  const matrix = selectedModel.value?.capabilities.resolution_duration_matrix
+  if (!matrix || form.duration === undefined) return available
+  return available.filter((resolution) => matrix[resolution]?.includes(form.duration as number) ?? true)
+})
 const modeLabel = computed(() => imageFile.value ? '图生视频' : '文生视频')
 const modeDescription = computed(() => imageFile.value ? '已添加参考图，提交后由后端按图生视频能力处理。' : '未添加参考图，提交后由后端按文生视频能力处理。')
+const promptRequired = computed(() => imageFile.value
+  ? selectedModel.value?.capabilities.prompt?.required_for_image_to_video !== false
+  : selectedModel.value?.capabilities.prompt?.required_for_text_to_video !== false)
+const promptMaxLength = computed(() => selectedModel.value?.capabilities.prompt?.max_length ?? 2000)
+const promptLabel = computed(() => promptRequired.value ? '视频描述' : '视频描述（可选）')
+const rules: FormRules<typeof form> = {
+  prompt: [{
+    trigger: 'blur',
+    validator: (_rule, value: string, callback) => {
+      const normalized = (value ?? '').trim()
+      if (promptRequired.value && !normalized) return callback(new Error('请输入视频描述'))
+      if (normalized && normalized.length < 3) return callback(new Error('请至少输入 3 个字符'))
+      if (normalized.length > promptMaxLength.value) return callback(new Error(`视频描述不能超过 ${promptMaxLength.value} 个字符`))
+      callback()
+    },
+  }],
+}
 const activeSteps = computed(() => task.value?.status === 'success' ? 4 : task.value?.status === 'processing' ? 2 : 1)
 const taskMessage = computed(() => ({ pending: '任务已提交，正在等待生成资源。', processing: '视频正在生成中；后端未返回真实进度时不显示百分比。', success: '视频已生成，可以查看结果。', failed: '生成失败，请根据错误信息调整后重试。', cancelled: '任务已取消。', timeout: '任务处理超时。' }[task.value?.status ?? 'pending']))
 
@@ -120,8 +141,12 @@ function onFileChange(uploadFile: UploadFile) {
   const allowed = ['image/jpeg', 'image/png', 'image/webp']
   if (!allowed.includes(file.type)) { ElMessage.error('仅支持 JPG、PNG 或 WebP 图片'); uploadRef.value?.clearFiles(); return }
   const configuredMax = Number(import.meta.env.VITE_MAX_IMAGE_SIZE_MB ?? 10)
-  const maxMb = selectedModel.value?.capabilities.max_image_size_mb ?? configuredMax
-  if (file.size > maxMb * 1024 * 1024) { ElMessage.error(`图片大小不能超过 ${maxMb} MB`); uploadRef.value?.clearFiles(); return }
+  const exclusiveMax = selectedModel.value?.capabilities.image?.max_size_mb_exclusive
+  const maxMb = exclusiveMax ?? selectedModel.value?.capabilities.max_image_size_mb ?? configuredMax
+  const tooLarge = exclusiveMax !== undefined
+    ? file.size >= maxMb * 1024 * 1024
+    : file.size > maxMb * 1024 * 1024
+  if (tooLarge) { ElMessage.error(exclusiveMax !== undefined ? `图片大小必须小于 ${maxMb} MB` : `图片大小不能超过 ${maxMb} MB`); uploadRef.value?.clearFiles(); return }
   if (selectedModel.value && !selectedModel.value.supports_image_to_video) { ElMessage.error('当前模型不支持图生视频，请先切换模型'); uploadRef.value?.clearFiles(); return }
   removeImage(); imageFile.value = file; previewUrl.value = URL.createObjectURL(file)
 }
@@ -173,6 +198,9 @@ async function prefillRegeneration() {
 
 onMounted(async () => { await loadModels(); await prefillRegeneration() })
 onBeforeUnmount(() => { window.clearTimeout(pollTimer); removeImage() })
+watch(() => form.duration, () => {
+  if (form.resolution && !resolutions.value.includes(form.resolution)) form.resolution = resolutions.value[0]
+})
 </script>
 
 <style scoped>

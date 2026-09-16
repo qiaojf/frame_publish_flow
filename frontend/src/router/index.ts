@@ -19,6 +19,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'videos/:id', component: () => import('@/views/VideoDetailView.vue'), meta: { title: '视频详情' } },
       { path: 'publish', component: () => import('@/views/PublishView.vue'), meta: { title: '发布视频' } },
       { path: 'publish/history', component: () => import('@/views/PublishHistoryView.vue'), meta: { title: '发布记录' } },
+      { path: 'publish/:postId', component: () => import('@/views/PublishResultView.vue'), meta: { title: '发布结果' } },
       { path: 'admin/users', component: () => import('@/views/admin/UsersView.vue'), meta: { title: '用户管理', requiresAdmin: true } },
       { path: 'admin/models', component: () => import('@/views/admin/ModelsView.vue'), meta: { title: '视频模型', requiresAdmin: true } },
       { path: 'admin/models/:id', component: () => import('@/views/admin/ModelEditorView.vue'), meta: { title: '模型配置', requiresAdmin: true } },

@@ -25,6 +25,8 @@ docker-compose.yml       PostgreSQL、Redis、API、Worker、前端
 
 环境要求：Docker Desktop（启用 Compose v2）。容器镜像内已安装 FFmpeg，无需主机单独安装。
 
+将仓库下载或克隆到本机后，进入包含 `docker-compose.yml` 的项目根目录。
+
 在项目根目录执行：
 
 ```powershell
@@ -37,6 +39,16 @@ docker compose up --build
 - 前端：http://localhost:5173
 - API 文档：http://localhost:8000/docs
 - 健康检查：http://localhost:8000/health
+- 公开审核视频：`http://localhost:5173/videos-pub/{video_id}`
+
+公开审核视频地址不是前端页面，无需登录，直接以正确的媒体类型返回未删除的视频，并支持 `HEAD` 和 HTTP Range。可用以下命令本地验证：
+
+```powershell
+curl.exe -I "http://localhost:5173/videos-pub/<video_id>"
+curl.exe -o test.mp4 "http://localhost:5173/videos-pub/<video_id>"
+```
+
+X、Instagram、YouTube、Facebook 的服务器无法访问 `localhost`。提交平台审核或在 `video_url` 中使用时，必须先把服务部署到公网 HTTPS 域名，再改用 `https://你的域名/videos-pub/{video_id}`。任何获得该 URL 的人都能读取视频；视频软删除后接口返回 404。
 
 停止服务：
 
@@ -45,6 +57,30 @@ docker compose down
 ```
 
 若希望连同开发数据库卷一起清空，可在确认不需要数据后执行 `docker compose down -v`。
+
+## 一键全栈联调验收
+
+安装并启动 Docker Desktop 后，可让脚本完成构建、启动和真实业务闭环验证：
+
+```powershell
+Set-Location 'C:\Users\TB-SD 33\python-project\create_publish'
+powershell -ExecutionPolicy Bypass -File .\scripts\verify-full-stack.ps1
+```
+
+脚本会实际检查 PostgreSQL 17、JSONB/外键/索引、Redis、Celery Worker 任务注册、FFmpeg/FFprobe，然后通过 FastAPI 完成：
+
+```text
+管理员登录与创建用户
+→ 文生视频
+→ 图生视频
+→ Storage 播放与下载
+→ 三个独立 Mock 发布任务（2 success + 1 failed）
+→ HTTP 幂等重放
+→ 只重试失败任务并恢复 success
+→ 权限、Secret 脱敏、Audit Log、CORS
+```
+
+成功后显示 `PASS`，并保持服务运行，供浏览器继续人工测试。脚本会写入带 `smoke-` 前缀的开发验收数据；如需完全清空，可在测试结束后执行 `docker compose down -v`。
 
 ## 默认开发账号
 
@@ -86,7 +122,7 @@ python -m app.db.init_db
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-`backend/.env.example` 已使用 `127.0.0.1` 连接本机 PostgreSQL 和 Redis。Migration 是唯一建表入口；Seed 可重复执行，不会重复创建默认记录。
+`backend/.env.example` 已使用 `127.0.0.1` 连接本机 PostgreSQL 和 Redis。后端本机进程只读取 `backend/.env`；根目录 `.env` 只由 Compose 注入，避免 `localhost` 与 Docker service name 混用。Migration 是唯一建表入口；Seed 可重复执行，不会重复创建默认记录。
 
 ### 3. Celery Worker
 
@@ -122,7 +158,7 @@ alembic current
 python -m app.db.init_db
 ```
 
-初始 Migration 位于 `backend/alembic/versions/20260909_0001_initial.py`，一次性创建 8 张业务表及外键、唯一约束和索引。数据库结构详见 `docs/database.md`。
+初始 Migration `20260909_0001` 创建 8 张业务表，增量 Migration `20260910_0002` 对齐 ORM 约束和索引命名；`alembic upgrade head` 会自动按顺序执行。数据库结构详见 `docs/database.md`。
 
 ## 测试与构建
 
@@ -136,6 +172,8 @@ npm run build
 ```
 
 pytest 使用 `backend/tests/frameflow-test.db` 隔离运行，测试结束后可直接删除；它不改变正式 PostgreSQL 配置。
+
+核心 API 闭环测试位于 `backend/tests/test_end_to_end.py`；真实 Docker 基础设施验收入口为 `scripts/verify-full-stack.ps1`，业务检查脚本为 `backend/scripts/integration_smoke.py`。
 
 ## Mock 完整闭环
 
@@ -162,9 +200,36 @@ API 只返回 Secret 是否已配置及脱敏值，不返回原文；结构化�
 
 ## Adapter 扩展
 
-视频模型：实现 `backend/app/adapters/video_models/base.py` 中的 `VideoModelAdapter`，在 `factory.py` 注册新的 `adapter_type`，再由管理员配置模型能力。Service 与具体厂商无耦合。
+视频模型采用 `ModelProvider → ModelAccount → VideoModel` 三层配置。已注册 Veo 3.1、Runway Gen-4.5、Seedance 2.5、Luma Ray 3.2、MiniMax Hailuo 2.3 和 Mock Adapter。MiniMax 模型目录默认启用，但只有管理员为账号配置 API Key 后才会真正提交；其他真实模板默认停用。API Key、Token、Project/Region 只属于账号层，具体模型只保存 Model ID、capabilities 与 request defaults。Service 与具体厂商无耦合。
 
-发布平台：实现 `backend/app/adapters/publishing/base.py` 中的 `PublishPlatformAdapter`，在 `factory.py` 注册，并通过平台 `capabilities` 描述真实能力。YouTube、X、Instagram、WhatsApp 当前只有明确报错的未配置占位，不伪造发布成功；接入前应依据当时官方 API、账号权限和用户授权实现。
+## MiniMax Hailuo 2.3
+
+接入依据 MiniMax Open Platform 的 [Text-to-Video](https://platform.minimax.io/docs/api-reference/video-generation-t2v)、[Image-to-Video](https://platform.minimax.io/docs/api-reference/video-generation-i2v)、[任务查询](https://platform.minimax.io/docs/api-reference/video-generation-query) 和 [视频下载](https://platform.minimax.io/docs/api-reference/video-generation-download) 文档。先在 MiniMax Open Platform 注册并开通 Pay-as-you-go Access，再到 Account Management 创建 API Key。
+
+种子数据会建立以下关系：
+
+```text
+MiniMax (Provider, bearer_token)
+└── MiniMax PoC Account (Account, API Key 由管理员写入)
+    └── MiniMax Hailuo 2.3 (Model, minimax_hailuo23)
+```
+
+账号凭证通过 `PATCH /api/v1/admin/model-accounts/{id}` 的 `api_key` 字段保存；数据库只保存加密值，查询仅返回脱敏值。`POST /api/v1/admin/model-accounts/{id}/test` 只检查启用状态、HTTPS Base URL、API Key 和客户端初始化条件，不访问 MiniMax，也不会产生费用；返回中的 `real_api_verified` 固定为 `false`。
+
+Hailuo 2.3 支持文生视频和单首帧图生视频。时长/分辨率组合为 `6s + 768P`、`6s + 1080P`、`10s + 768P`；前后端均从模型 `capabilities` 读取约束。图生视频支持 JPG/JPEG/PNG/WebP、小于 20 MB、短边大于 300 像素、宽高比 0.4–2.5；本地 Storage 图片会转为 Base64 Data URL，公网 URL 也可直接传递。
+
+异步链路为：FastAPI 创建本地任务 → Celery 调用 `POST /v1/video_generation` → 保存 `task_id` → 按间隔重新调度并调用 `GET /v1/query/video_generation?task_id=...` → 成功后用 `GET /v1/files/retrieve?file_id=...` 获取下载地址 → 流式下载 MP4 → Storage → FFmpeg 元数据和缩略图 → 创建 Video。MiniMax 轮询任务不会在 Worker 中 busy loop；相关配置为：
+
+```env
+MINIMAX_API_BASE_URL=https://api.minimax.io
+MINIMAX_POLL_INTERVAL_SECONDS=10
+MINIMAX_GENERATION_TIMEOUT_SECONDS=900
+MINIMAX_HTTP_TIMEOUT_SECONDS=60
+```
+
+本次接入仅使用 `httpx.MockTransport` 验证官方完整链路，没有执行真实 MiniMax 生成。充值后如需首次真实 PoC，请先配置账号 API Key 并重启 API/Worker，然后在页面选择 `MiniMax Hailuo 2.3`，使用简单 Prompt、`6 秒`、`768P` 创建一条文生视频任务；确认前请勿运行该步骤。
+
+发布平台采用 `PublishPlatform → PublishAccount` 分层。已注册 X、Instagram、YouTube、Facebook 和 Mock Adapter，并通过平台 `capabilities` 描述真实能力。四个真实平台模板默认停用；没有经官方凭证端到端验证时会明确拒绝外部写入，不会伪造发布成功。
 
 ## 常见问题
 
@@ -175,4 +240,13 @@ API 只返回 Secret 是否已配置及脱敏值，不返回原文；结构化�
 - 修改 Secret 时留空：表示保留旧值；列表和详情永远不会回传原文。
 - 真实平台不能发布：第一阶段只承诺 Mock 闭环；未提供凭证且未核验官方 API 时不会模拟成真实成功。
 
-更多信息见 [架构说明](docs/architecture.md)、[数据库说明](docs/database.md) 和 [API 清单](docs/api.md)。
+更多信息见 [架构说明](docs/architecture.md)、[数据库说明](docs/database.md)、[API 清单](docs/api.md) 和 [全项目联调测试](docs/integration-testing.md)。
+
+
+访问：
+- 前端：http://localhost:5173
+- API 文档：http://localhost:8000/docs
+默认应用账号：
+- 管理员：admin / Admin123!
+- 普通用户：user / User123!
+

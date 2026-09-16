@@ -1,6 +1,7 @@
 import base64
 import json
 
+from app.core.enums import UserRole
 from app.models import PublishTask, Video
 from app.utils.media import VideoMetadata
 
@@ -43,7 +44,7 @@ def _patch_media_tools(monkeypatch) -> None:
 
 def test_complete_api_workflow(client, db, make_user, monkeypatch):
     _patch_media_tools(monkeypatch)
-    make_user(username="admin", password="Admin123!", role="admin")
+    make_user(username="admin", password="Admin123!", role=UserRole.ADMIN)
     admin_headers = _login(client, "admin", "Admin123!")
 
     me = client.get("/api/v1/auth/me", headers=admin_headers)
@@ -251,6 +252,11 @@ def test_complete_api_workflow(client, db, make_user, monkeypatch):
     assert retried["retry_count"] == 1
     assert db.query(PublishTask).count() == 3
 
+    image_video_id = image_task["video_id"]
+    deleted = client.delete(f"/api/v1/videos/{image_video_id}", headers=user_headers)
+    assert deleted.status_code == 204
+    assert client.get(f"/api/v1/videos/{image_video_id}", headers=user_headers).status_code == 404
+
     audit_response = client.get(
         "/api/v1/admin/logs?page=1&page_size=100",
         headers=admin_headers,
@@ -261,6 +267,7 @@ def test_complete_api_workflow(client, db, make_user, monkeypatch):
         "auth.login",
         "generation.create",
         "generation.success",
+        "video.delete",
         "publish.create",
         "publish.success",
         "publish.failed",

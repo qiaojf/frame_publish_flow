@@ -77,7 +77,7 @@ const metrics = computed(() => {
     { label: '今日生成任务', value: generationTasks.value.filter((item) => new Date(item.created_at).toDateString() === today).length, hint: '今日已提交', color: '#169a98' },
     { label: '生成中', value: generationTasks.value.filter((item) => ['pending', 'processing'].includes(item.status)).length, hint: '等待或处理中的任务', color: '#c47d16' },
     { label: '发布成功', value: tasks.value.filter((item) => item.status === 'success').length, hint: '最近记录', color: '#169a77' },
-    { label: '发布失败', value: tasks.value.filter((item) => ['failed', 'timeout'].includes(item.status)).length, hint: '需要人工关注', color: '#cf4c52' },
+    { label: '发布失败', value: tasks.value.filter((item) => item.status === 'failed').length, hint: '需要人工关注', color: '#cf4c52' },
   ]
   if (auth.isAdmin) {
     base.push({ label: '用户总数', value: userTotal.value ?? '—', hint: '已配置系统用户', color: '#6d5bd0' })

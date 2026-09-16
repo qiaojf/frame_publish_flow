@@ -109,6 +109,54 @@ def test_publish_other_users_video_is_forbidden(
     assert response.status_code == 403
 
 
+def test_disabled_and_mismatched_publish_accounts_are_rejected(
+    client,
+    db,
+    make_user,
+    make_video,
+    make_platform,
+    auth_headers,
+    no_publish_queue,
+):
+    user = make_user()
+    video = make_video(user)
+    first = make_platform()
+    second = make_platform()
+
+    first[1].enabled = False
+    db.commit()
+    disabled_account = client.post(
+        "/api/v1/publish/tasks",
+        headers=auth_headers(user),
+        data={"payload": json.dumps(publish_payload(video.id, [first]))},
+    )
+    assert disabled_account.status_code == 400
+    assert disabled_account.json()["error_code"] == "ACCOUNT_DISABLED"
+
+    first[1].enabled = True
+    first[0].enabled = False
+    db.commit()
+    disabled_platform = client.post(
+        "/api/v1/publish/tasks",
+        headers=auth_headers(user),
+        data={"payload": json.dumps(publish_payload(video.id, [first]))},
+    )
+    assert disabled_platform.status_code == 400
+    assert disabled_platform.json()["error_code"] == "PLATFORM_DISABLED"
+
+    first[0].enabled = True
+    db.commit()
+    mismatch_payload = publish_payload(video.id, [first])
+    mismatch_payload["targets"][0]["account_id"] = str(second[1].id)
+    mismatch = client.post(
+        "/api/v1/publish/tasks",
+        headers=auth_headers(user),
+        data={"payload": json.dumps(mismatch_payload)},
+    )
+    assert mismatch.status_code == 400
+    assert mismatch.json()["error_code"] == "ACCOUNT_PLATFORM_MISMATCH"
+
+
 def test_retry_only_failed_task(
     client,
     db,
@@ -142,10 +190,12 @@ def test_retry_only_failed_task(
 
 
 def test_mock_publish_tasks_finish_independently(
+    client,
     db,
     make_user,
     make_video,
     make_platform,
+    auth_headers,
 ):
     user = make_user()
     video = make_video(user)
@@ -178,8 +228,30 @@ def test_mock_publish_tasks_finish_independently(
     run_publish_task.run(str(success_task.id))
     run_publish_task.run(str(fail_task.id))
     db.expire_all()
-    assert db.get(PublishTask, success_task.id).status == PublishStatus.SUCCESS
+    saved_success = db.get(PublishTask, success_task.id)
+    assert saved_success.status == PublishStatus.SUCCESS
+    assert saved_success.platform_post_url == f"/publish/{saved_success.platform_post_id}"
     assert db.get(PublishTask, fail_task.id).status == PublishStatus.FAILED
+
+    detail = client.get(
+        f"/api/v1/publish/tasks/posts/{saved_success.platform_post_id}",
+        headers=auth_headers(user),
+    )
+    assert detail.status_code == 200
+    assert detail.json()["data"]["publish_url"] == f"/publish/{saved_success.platform_post_id}"
+    assert detail.json()["data"]["video_url"].startswith("/storage/")
+
+    saved_success.platform_post_url = (
+        f"https://mock.local/posts/{saved_success.platform_post_id}"
+    )
+    db.commit()
+    legacy_detail = client.get(
+        f"/api/v1/publish/tasks/posts/{saved_success.platform_post_id}",
+        headers=auth_headers(user),
+    )
+    assert legacy_detail.json()["data"]["publish_url"] == (
+        f"/publish/{saved_success.platform_post_id}"
+    )
 
 
 def test_successful_publish_task_is_not_sent_again(
@@ -213,3 +285,40 @@ def test_successful_publish_task_is_not_sent_again(
     run_publish_task.run(str(task.id))
     db.expire_all()
     assert db.get(PublishTask, task.id).status == PublishStatus.SUCCESS
+
+
+def test_processing_publish_uses_publishing_api_status(
+    client,
+    db,
+    make_user,
+    make_video,
+    make_platform,
+    auth_headers,
+):
+    user = make_user()
+    video = make_video(user)
+    platform, account = make_platform("processing")
+    task = PublishTask(
+        video_id=video.id,
+        user_id=user.id,
+        platform_id=platform.id,
+        account_id=account.id,
+        title="发布中",
+        tags=[],
+        platform_overrides={},
+        idempotency_key="publishing-status-key",
+        status=PublishStatus.PENDING,
+    )
+    db.add(task)
+    db.commit()
+    run_publish_task.run(str(task.id))
+
+    detail = client.get(f"/api/v1/publish/tasks/{task.id}", headers=auth_headers(user))
+    assert detail.status_code == 200
+    assert detail.json()["data"]["status"] == "publishing"
+    listed = client.get(
+        "/api/v1/publish/tasks?status=publishing",
+        headers=auth_headers(user),
+    )
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 1

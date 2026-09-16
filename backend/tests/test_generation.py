@@ -69,6 +69,55 @@ def test_generation_validation(client, make_user, make_model, auth_headers, no_q
     assert disabled_response.status_code == 400
 
 
+def test_image_type_and_size_validation(client, make_user, make_model, auth_headers, no_queue):
+    user = make_user()
+    model = make_model()
+    invalid_type = client.post(
+        "/api/v1/generation/tasks",
+        headers=auth_headers(user),
+        data={"prompt": "非法图片", "model_id": str(model.id)},
+        files={"image": ("reference.gif", b"GIF89a", "image/gif")},
+    )
+    assert invalid_type.status_code == 400
+    assert invalid_type.json()["error_code"] == "INVALID_IMAGE_TYPE"
+
+    too_large = client.post(
+        "/api/v1/generation/tasks",
+        headers=auth_headers(user),
+        data={"prompt": "超大图片", "model_id": str(model.id)},
+        files={"image": ("reference.png", b"x" * (10 * 1024 * 1024 + 1), "image/png")},
+    )
+    assert too_large.status_code == 400
+    assert too_large.json()["error_code"] == "IMAGE_TOO_LARGE"
+
+
+def test_generation_queue_failure_is_reported(
+    client,
+    db,
+    make_user,
+    make_model,
+    auth_headers,
+    monkeypatch,
+):
+    user = make_user()
+    model = make_model()
+
+    def unavailable(task_id):
+        raise ConnectionError("redis unavailable")
+
+    monkeypatch.setattr("app.tasks.generation_tasks.run_generation_task.delay", unavailable)
+    response = client.post(
+        "/api/v1/generation/tasks",
+        headers=auth_headers(user),
+        data={"prompt": "队列失败", "model_id": str(model.id)},
+    )
+    assert response.status_code == 503
+    assert response.json()["error_code"] == "QUEUE_UNAVAILABLE"
+    task = db.query(VideoGenerationTask).one()
+    db.refresh(task)
+    assert task.status == GenerationStatus.FAILED
+
+
 def test_generation_task_owner_permission(client, make_user, make_model, auth_headers, no_queue):
     owner = make_user(username="owner")
     other = make_user(username="other")

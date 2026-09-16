@@ -1,3 +1,8 @@
+from datetime import UTC, datetime, timedelta
+
+import jwt
+
+from app.core.config import get_settings
 from app.core.enums import UserRole
 
 
@@ -27,3 +32,25 @@ def test_user_cannot_access_admin(client, make_user, auth_headers):
     response = client.get("/api/v1/admin/users", headers=auth_headers(user))
     assert response.status_code == 403
     assert response.json()["error_code"] == "ADMIN_REQUIRED"
+
+
+def test_expired_token_is_rejected(client, make_user):
+    user = make_user()
+    settings = get_settings()
+    token = jwt.encode(
+        {
+            "sub": str(user.id),
+            "role": "user",
+            "type": "access",
+            "iat": datetime.now(UTC) - timedelta(minutes=2),
+            "exp": datetime.now(UTC) - timedelta(minutes=1),
+        },
+        settings.jwt_secret_key.get_secret_value(),
+        algorithm="HS256",
+    )
+    response = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 401
+    assert response.json()["error_code"] == "INVALID_TOKEN"
