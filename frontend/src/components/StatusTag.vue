@@ -6,19 +6,21 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { TagProps } from 'element-plus'
 
 const props = defineProps<{ status?: string }>()
-const map: Record<string, { label: string; type: TagProps['type'] }> = {
-  pending: { label: '等待中', type: 'info' }, processing: { label: '处理中', type: 'primary' },
-  publishing: { label: '发布中', type: 'primary' },
-  success: { label: '成功', type: 'success' }, failed: { label: '失败', type: 'danger' },
-  cancelled: { label: '已取消', type: 'info' }, timeout: { label: '已超时', type: 'warning' },
-  not_published: { label: '未发布', type: 'info' }, partially_failed: { label: '部分失败', type: 'warning' },
-  enabled: { label: '已启用', type: 'success' }, disabled: { label: '已停用', type: 'info' },
+const { t } = useI18n()
+const map: Record<string, TagProps['type']> = {
+  pending: 'info', processing: 'primary', publishing: 'primary', success: 'success', failed: 'danger',
+  cancelled: 'info', timeout: 'warning', not_published: 'info', partially_failed: 'warning', enabled: 'success', disabled: 'info',
 }
 const status = computed(() => props.status ?? 'pending')
-const presentation = computed(() => map[status.value] ?? { label: status.value, type: 'info' as const })
+const presentation = computed(() => {
+  const key = `status.${status.value}`
+  const label = t(key)
+  return { label: label === key ? status.value || t('status.unknown') : label, type: map[status.value] ?? 'info' as const }
+})
 </script>
 
 <style scoped>

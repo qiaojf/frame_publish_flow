@@ -4,6 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.enums import UserRole
+from app.core.locale import SupportedLocale
 
 
 class UserOut(BaseModel):
@@ -15,6 +16,7 @@ class UserOut(BaseModel):
     email: str | None = None
     role: UserRole
     enabled: bool
+    preferred_locale: SupportedLocale
     last_login_at: datetime | None = None
     created_at: datetime
 
@@ -26,6 +28,7 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     role: UserRole = UserRole.USER
     enabled: bool = True
+    preferred_locale: SupportedLocale | None = None
 
 
 class UserUpdate(BaseModel):
@@ -38,3 +41,7 @@ class UserUpdate(BaseModel):
 
 class PasswordReset(BaseModel):
     password: str = Field(min_length=8, max_length=128)
+
+
+class UserPreferencesUpdate(BaseModel):
+    preferred_locale: SupportedLocale

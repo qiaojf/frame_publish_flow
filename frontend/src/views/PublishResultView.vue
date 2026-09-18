@@ -1,24 +1,24 @@
 <template>
   <div>
     <PageHeader
-      eyebrow="Delivery proof"
-      :title="task?.video_title || '发布结果'"
-      description="核对平台回执、视频内容与本次发布的唯一标识。"
+      :eyebrow="t('publish.receiptEyebrow')"
+      :title="task?.video_title || t('publish.resultTitle')"
+      :description="t('publish.resultIntro')"
     >
       <template #actions>
-        <el-button @click="$router.push('/publish/history')"><el-icon><Back /></el-icon>返回发布记录</el-button>
-        <el-button v-if="task" type="primary" @click="$router.push(`/videos/${task.video_id}`)">查看源视频</el-button>
+        <el-button @click="$router.push('/publish/history')"><el-icon><Back /></el-icon>{{ t('publish.backHistory') }}</el-button>
+        <el-button v-if="task" type="primary" @click="$router.push(`/videos/${task.video_id}`)">{{ t('publish.viewSource') }}</el-button>
       </template>
     </PageHeader>
 
-    <DataState :loading="loading" :error="error" :empty="!task" empty-text="没有找到对应的发布结果" @retry="load">
+    <DataState :loading="loading" :error="error" :empty="!task" :empty-text="t('publish.resultNotFound')" @retry="load">
       <template #content>
         <div v-if="task" class="delivery-grid">
           <section class="surface delivery-stage">
             <div class="delivery-stage-head">
               <div>
                 <span class="stage-kicker">{{ task.platform_name }} · {{ publishTypeLabel }}</span>
-                <h2>{{ task.video_title || '未命名视频' }}</h2>
+                <h2>{{ task.video_title || t('common.untitledVideo') }}</h2>
               </div>
               <StatusTag :status="task.status" />
             </div>
@@ -30,42 +30,42 @@
                 :poster="task.video_thumbnail_url"
                 controls
                 preload="metadata"
-              >浏览器不支持视频播放。</video>
-              <div v-else class="player-empty"><VideoPlay :size="36" /><span>该发布记录没有可用的视频路径</span></div>
+              >{{ t('video.browserUnsupported') }}</video>
+              <div v-else class="player-empty"><VideoPlay :size="36" /><span>{{ t('publish.missingVideoPath') }}</span></div>
             </div>
             <div class="stage-foot">
-              <span>账号：{{ task.account_name || '默认账号' }}</span>
-              <span>完成时间：{{ formatDate(task.published_at || task.created_at) }}</span>
+              <span>{{ t('publish.accountLabel', { account: task.account_name || t('common.defaultAccount') }) }}</span>
+              <span>{{ t('publish.completedAt', { time: formatDate(task.published_at || task.created_at) }) }}</span>
             </div>
           </section>
 
           <aside class="surface receipt-card">
             <div class="receipt-signal" :class="`is-${task.status}`" />
             <div class="receipt-head">
-              <span class="page-eyebrow">Publish receipt</span>
-              <h2>平台回执</h2>
-              <p>此页面使用站内相对路径，可随部署域名自动切换。</p>
+              <span class="page-eyebrow">{{ t('publish.receiptEyebrow') }}</span>
+              <h2>{{ t('publish.receipt') }}</h2>
+              <p>{{ t('publish.relativePathHint') }}</p>
             </div>
 
             <div class="receipt-id-block">
-              <span>Post ID</span>
+              <span>{{ t('publish.postId') }}</span>
               <strong class="mono">{{ task.platform_post_id || postId }}</strong>
-              <el-button text type="primary" @click="copyPostId"><el-icon><CopyDocument /></el-icon>复制</el-button>
+              <el-button text type="primary" @click="copyPostId"><el-icon><CopyDocument /></el-icon>{{ t('common.copy') }}</el-button>
             </div>
 
             <dl class="receipt-list">
-              <dt>平台</dt><dd>{{ task.platform_name }}</dd>
-              <dt>账号</dt><dd>{{ task.account_name || '默认账号' }}</dd>
-              <dt>任务 ID</dt><dd class="mono">{{ task.id }}</dd>
-              <template v-if="task.provider_container_id"><dt>Container ID</dt><dd class="mono">{{ task.provider_container_id }}</dd></template>
-              <template v-if="task.provider_upload_id"><dt>Upload ID</dt><dd class="mono">{{ task.provider_upload_id }}</dd></template>
-              <dt>站内路径</dt><dd class="mono">/publish/{{ task.platform_post_id || postId }}</dd>
-              <dt>视频路径</dt><dd class="mono">{{ relativeVideoUrl || '—' }}</dd>
+              <dt>{{ t('common.platform') }}</dt><dd>{{ task.platform_name }}</dd>
+              <dt>{{ t('common.account') }}</dt><dd>{{ task.account_name || t('common.defaultAccount') }}</dd>
+              <dt>{{ t('publish.taskId') }}</dt><dd class="mono">{{ task.id }}</dd>
+              <template v-if="task.provider_container_id"><dt>{{ t('publish.containerId') }}</dt><dd class="mono">{{ task.provider_container_id }}</dd></template>
+              <template v-if="task.provider_upload_id"><dt>{{ t('publish.uploadId') }}</dt><dd class="mono">{{ task.provider_upload_id }}</dd></template>
+              <dt>{{ t('publish.internalPath') }}</dt><dd class="mono">/publish/{{ task.platform_post_id || postId }}</dd>
+              <dt>{{ t('publish.videoPath') }}</dt><dd class="mono">{{ relativeVideoUrl || '—' }}</dd>
             </dl>
 
             <div v-if="task.error_message" class="receipt-error">
-              <strong>{{ task.error_code || '发布失败' }}</strong>
-              <p>{{ task.error_message }}</p>
+              <strong>{{ task.error_code || t('publish.publishFailed') }}</strong>
+              <p>{{ getBusinessErrorMessage(task.error_code, task.error_message) }}</p>
             </div>
           </aside>
         </div>
@@ -76,6 +76,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { Back, CopyDocument, VideoPlay } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -85,15 +86,16 @@ import StatusTag from '@/components/StatusTag.vue'
 import { getPublishedPost } from '@/api/publish'
 import type { PublishTask } from '@/types/publish'
 import { formatDate } from '@/utils/format'
-import { getErrorMessage } from '@/utils/errors'
+import { getBusinessErrorMessage, getErrorMessage } from '@/utils/errors'
 
 const route = useRoute()
+const { t } = useI18n()
 const postId = String(route.params.postId)
 const task = ref<PublishTask>()
 const loading = ref(true)
 const error = ref('')
 
-const publishTypeLabel = computed(() => ({ reel: 'Reel', post: '图文', video: '视频' }[task.value?.publish_type ?? 'video']))
+const publishTypeLabel = computed(() => ({ reel: 'Reel', post: t('publish.typePost'), video: t('publish.typeVideo') }[task.value?.publish_type ?? 'video']))
 const relativeVideoUrl = computed(() => {
   const value = task.value?.video_url
   if (!value) return ''
@@ -112,16 +114,16 @@ async function load() {
   loading.value = true
   error.value = ''
   try { task.value = await getPublishedPost(postId) }
-  catch (reason) { error.value = getErrorMessage(reason, '发布结果加载失败') }
+  catch (reason) { error.value = getErrorMessage(reason, t('publish.resultLoadFailed')) }
   finally { loading.value = false }
 }
 
 async function copyPostId() {
   try {
     await navigator.clipboard.writeText(task.value?.platform_post_id || postId)
-    ElMessage.success('Post ID 已复制')
+    ElMessage.success(t('publish.postIdCopied'))
   } catch {
-    ElMessage.error('复制失败，请手动选择 ID')
+    ElMessage.error(t('publish.copyFailed'))
   }
 }
 

@@ -199,13 +199,13 @@ def _seed_users(db: Any, settings: Any) -> None:
     if admin is None and settings.default_admin_password:
         db.add(User(username=settings.default_admin_username, display_name="系统管理员",
                     password_hash=hash_password(settings.default_admin_password.get_secret_value()),
-                    role=UserRole.ADMIN, enabled=True))
+                    role=UserRole.ADMIN, enabled=True, preferred_locale=settings.default_locale))
     if settings.default_user_username and settings.default_user_password:
         user = db.scalar(select(User).where(User.username == settings.default_user_username))
         if user is None:
             db.add(User(username=settings.default_user_username, display_name="测试用户",
                         password_hash=hash_password(settings.default_user_password.get_secret_value()),
-                        role=UserRole.USER, enabled=True))
+                        role=UserRole.USER, enabled=True, preferred_locale=settings.default_locale))
 
 
 def _seed_models(db: Any, settings: Any) -> None:

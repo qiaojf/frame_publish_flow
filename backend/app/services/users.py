@@ -5,10 +5,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.enums import AuditResult
+from app.core.config import get_settings
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.security import hash_password
 from app.models import User
-from app.schemas.user import PasswordReset, UserCreate, UserUpdate
+from app.schemas.user import PasswordReset, UserCreate, UserPreferencesUpdate, UserUpdate
 from app.services.audit import add_audit_log
 
 
@@ -40,6 +41,7 @@ class UserService:
             password_hash=hash_password(payload.password),
             role=payload.role,
             enabled=payload.enabled,
+            preferred_locale=payload.preferred_locale or get_settings().default_locale,
         )
         db.add(user)
         try:
@@ -64,6 +66,21 @@ class UserService:
         user = db.get(User, user_id)
         if user is None:
             raise NotFoundError("用户不存在", "USER_NOT_FOUND")
+        return user
+
+    @staticmethod
+    def update_preferences(db: Session, user: User, payload: UserPreferencesUpdate) -> User:
+        user.preferred_locale = payload.preferred_locale
+        add_audit_log(
+            db,
+            user_id=user.id,
+            action="user.preferences.update",
+            resource_type="user",
+            resource_id=str(user.id),
+            result=AuditResult.SUCCESS,
+        )
+        db.commit()
+        db.refresh(user)
         return user
 
     @classmethod

@@ -82,6 +82,7 @@ def make_user(db: Session) -> Callable[..., User]:
         password: str = "User123!",
         role: UserRole = UserRole.USER,
         enabled: bool = True,
+        preferred_locale: str = "zh-CN",
     ) -> User:
         user = User(
             username=username,
@@ -89,6 +90,7 @@ def make_user(db: Session) -> Callable[..., User]:
             password_hash=hash_password(password),
             role=role,
             enabled=enabled,
+            preferred_locale=preferred_locale,
         )
         db.add(user)
         db.commit()

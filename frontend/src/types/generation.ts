@@ -7,6 +7,7 @@ export interface GenerationTask {
   model_id: string
   model_name?: string
   generation_type?: 'text_to_video' | 'image_to_video'
+  error_code?: string
   error_message?: string
   video_id?: string
   created_at: string

@@ -15,6 +15,7 @@ from app.api.router import api_router
 from app.api.videos import public_router as public_video_router
 from app.core.config import get_settings
 from app.core.exceptions import AppError
+from app.core.locale import resolve_locale, translate_error
 from app.core.logging import configure_logging, logger
 from app.db.init_db import seed_database
 
@@ -49,6 +50,7 @@ app.add_middleware(
 @app.middleware("http")
 async def request_context(request: Request, call_next):  # type: ignore[no-untyped-def]
     request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+    request.state.locale = resolve_locale(accept_language=request.headers.get("Accept-Language"))
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(request_id=request_id)
     started = time.perf_counter()
@@ -63,19 +65,21 @@ async def request_context(request: Request, call_next):  # type: ignore[no-untyp
 
 
 @app.exception_handler(AppError)
-async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
+async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
-        content={"success": False, "data": None, "message": exc.message, "error_code": exc.error_code},
+        content={
+            "success": False,
+            "data": None,
+            "message": translate_error(exc.error_code, exc.message, request.state.locale),
+            "error_code": exc.error_code,
+        },
     )
 
 
 @app.exception_handler(RequestValidationError)
-async def validation_error_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
-    error = exc.errors()[0] if exc.errors() else {}
-    location = ".".join(str(item) for item in error.get("loc", [])[1:])
-    detail = error.get("msg", "参数格式错误")
-    message = f"{location}：{detail}" if location else str(detail)
+async def validation_error_handler(request: Request, _: RequestValidationError) -> JSONResponse:
+    message = translate_error("REQUEST_VALIDATION_ERROR", "请求参数格式错误", request.state.locale)
     return JSONResponse(
         status_code=422,
         content={"success": False, "data": None, "message": message, "error_code": "REQUEST_VALIDATION_ERROR"},
@@ -83,24 +87,30 @@ async def validation_error_handler(_: Request, exc: RequestValidationError) -> J
 
 
 @app.exception_handler(HTTPException)
-async def http_error_handler(_: Request, exc: HTTPException) -> JSONResponse:
+async def http_error_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    error_code = f"HTTP_{exc.status_code}"
     return JSONResponse(
         status_code=exc.status_code,
         content={
             "success": False,
             "data": None,
-            "message": str(exc.detail),
-            "error_code": f"HTTP_{exc.status_code}",
+            "message": translate_error(error_code, str(exc.detail), request.state.locale),
+            "error_code": error_code,
         },
     )
 
 
 @app.exception_handler(Exception)
-async def unhandled_error_handler(_: Request, exc: Exception) -> JSONResponse:
+async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("unhandled_error", error_type=type(exc).__name__)
     return JSONResponse(
         status_code=500,
-        content={"success": False, "data": None, "message": "服务内部错误", "error_code": "INTERNAL_ERROR"},
+        content={
+            "success": False,
+            "data": None,
+            "message": translate_error("INTERNAL_ERROR", "服务内部错误", request.state.locale),
+            "error_code": "INTERNAL_ERROR",
+        },
     )
 
 

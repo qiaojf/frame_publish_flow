@@ -1,6 +1,7 @@
 import axios, { type AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import type { ApiEnvelope } from '@/types/common'
+import { getCurrentLocale, i18n } from '@/locales'
 
 const baseURL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 const timeout = Number(import.meta.env.VITE_REQUEST_TIMEOUT_MS ?? 20_000)
@@ -11,6 +12,7 @@ export const request = axios.create({ baseURL, timeout })
 request.interceptors.request.use((config) => {
   const token = localStorage.getItem(tokenKey)
   if (token) config.headers.Authorization = `Bearer ${token}`
+  config.headers['Accept-Language'] = getCurrentLocale()
   return config
 })
 
@@ -21,12 +23,12 @@ request.interceptors.response.use(
       if (error.response?.status === 401) {
         localStorage.removeItem(tokenKey)
         if (window.location.pathname !== '/login') {
-          ElMessage.error('登录已过期，请重新登录')
+          ElMessage.error(i18n.global.t('auth.sessionExpired'))
           const redirect = encodeURIComponent(`${window.location.pathname}${window.location.search}`)
           window.location.assign(`/login?redirect=${redirect}`)
         }
       } else if (error.response?.status === 403) {
-        ElMessage.warning('当前账号无权执行此操作')
+        ElMessage.warning(i18n.global.t('auth.forbiddenAction'))
       }
     }
     return Promise.reject(error)
@@ -36,7 +38,7 @@ request.interceptors.response.use(
 function unwrap<T>(payload: ApiEnvelope<T> | T): T {
   if (payload && typeof payload === 'object' && 'success' in payload && 'data' in payload) {
     const envelope = payload as ApiEnvelope<T>
-    if (!envelope.success) throw new Error(envelope.message || '业务请求失败')
+    if (!envelope.success) throw new Error(envelope.message || i18n.global.t('errors.businessFailed'))
     return envelope.data
   }
   return payload as T

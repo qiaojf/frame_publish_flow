@@ -2,12 +2,21 @@ import uuid
 
 from fastapi import APIRouter, Query, Response, status
 
-from app.core.permissions import AdminUser, DbSession
+from app.core.permissions import AdminUser, CurrentUser, DbSession
 from app.schemas.common import PageResult, SuccessResponse
-from app.schemas.user import PasswordReset, UserCreate, UserOut, UserUpdate
+from app.schemas.user import PasswordReset, UserCreate, UserOut, UserPreferencesUpdate, UserUpdate
 from app.services.users import UserService
 
 router = APIRouter(prefix="/admin/users", tags=["Admin / Users"])
+preferences_router = APIRouter(prefix="/users", tags=["Users"])
+
+
+@preferences_router.patch("/me/preferences", response_model=SuccessResponse[UserOut])
+def update_my_preferences(
+    payload: UserPreferencesUpdate, db: DbSession, user: CurrentUser
+) -> SuccessResponse[UserOut]:
+    updated = UserService.update_preferences(db, user, payload)
+    return SuccessResponse(data=UserOut.model_validate(updated))
 
 
 @router.get("", response_model=PageResult[UserOut])

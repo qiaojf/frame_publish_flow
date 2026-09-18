@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     app_host: str = "127.0.0.1"
     app_port: int = 8000
     public_base_url: str = "http://127.0.0.1:8000"
+    default_locale: Literal["zh-CN", "ja-JP", "en-US"] = "zh-CN"
     database_url: str
     redis_url: str = "redis://127.0.0.1:6379/0"
     celery_broker_url: str = "redis://127.0.0.1:6379/0"

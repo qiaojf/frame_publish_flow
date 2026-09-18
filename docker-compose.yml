@@ -60,9 +60,13 @@ services:
         condition: service_healthy
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_DEFAULT_LOCALE: ${VITE_DEFAULT_LOCALE:-zh-CN}
+        VITE_DISPLAY_TIME_ZONE: ${VITE_DISPLAY_TIME_ZONE:-Asia/Tokyo}
     ports:
-      - "5173:80"
+      - "5174:80"
     depends_on:
       api:
         condition: service_healthy

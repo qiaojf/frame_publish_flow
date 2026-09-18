@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
 from app.core.enums import AuditResult, GenerationStatus, GenerationType, PublishStatus, UserRole
+from app.core.config import get_settings
 from app.db.base import Base
 
 JSON_TYPE = JSON().with_variant(JSONB(), "postgresql")
@@ -51,6 +52,9 @@ class User(TimestampMixin, Base):
         nullable=False,
     )
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    preferred_locale: Mapped[str] = mapped_column(
+        String(10), default=lambda: get_settings().default_locale, nullable=False
+    )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
