@@ -154,11 +154,14 @@ def test_publish_waits_for_finished_then_returns_distinct_media_id():
             return httpx.Response(200, json={"id": "container_123", "status_code": status})
         if request.url.path.endswith(f"/{IG_USER_ID}/media_publish"):
             assert form_values(request)["creation_id"] == ["container_123"]
+            return httpx.Response(200, json={"id": "media_456"})
+        if request.url.path.endswith("/media_456"):
+            assert request.url.params["fields"] == "permalink,username"
             return httpx.Response(
                 200,
                 json={
-                    "id": "media_456",
                     "permalink": "https://www.instagram.com/reel/ABC123/",
+                    "username": "published.creator",
                 },
             )
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
@@ -170,33 +173,37 @@ def test_publish_waits_for_finished_then_returns_distinct_media_id():
         "GET /v26.0/container_123",
         "GET /v26.0/container_123",
         f"POST /v26.0/{IG_USER_ID}/media_publish",
+        "GET /v26.0/media_456",
     ]
     assert result.status == "success"
     assert result.provider_container_id == "container_123"
     assert result.platform_post_id == "media_456"
-    assert result.publish_url == "https://www.instagram.com/reel/ABC123/"
-    assert result.platform_url == "https://www.instagram.com/creator.name/"
+    assert result.publish_url == "https://www.instagram.com/p/ABC123/"
+    assert result.platform_url == "https://www.instagram.com/published.creator/"
     assert result.metadata == {
         "container_id": "container_123",
         "media_id": "media_456",
         "permalink": "https://www.instagram.com/reel/ABC123/",
+        "username": "published.creator",
     }
 
 
-def test_publish_builds_post_url_from_media_id_when_response_has_no_permalink():
+def test_publish_does_not_treat_numeric_media_id_as_permalink_shortcode():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith(f"/{IG_USER_ID}/media"):
             return httpx.Response(200, json={"id": "container_without_permalink"})
         if request.url.path.endswith("/container_without_permalink"):
             return httpx.Response(200, json={"status_code": "FINISHED"})
         if request.url.path.endswith(f"/{IG_USER_ID}/media_publish"):
-            return httpx.Response(200, json={"id": "Dd2s93-gYEZ"})
+            return httpx.Response(200, json={"id": "18180224632437876"})
+        if request.url.path.endswith("/18180224632437876"):
+            return httpx.Response(200, json={"id": "18180224632437876"})
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
     result = asyncio.run(make_instagram_adapter(handler).publish_video(publish_request()))
 
-    assert result.platform_post_id == "Dd2s93-gYEZ"
-    assert result.publish_url == "https://www.instagram.com/p/Dd2s93-gYEZ/"
+    assert result.platform_post_id == "18180224632437876"
+    assert result.publish_url is None
 
 
 def test_processing_timeout_does_not_call_media_publish():
@@ -376,6 +383,7 @@ def test_publish_worker_persists_instagram_ids(db, make_user, make_video, make_p
     user = make_user()
     video = make_video(user)
     platform, account = make_platform()
+    platform.code = "instagram"
     task = PublishTask(
         video_id=video.id,
         user_id=user.id,
@@ -411,7 +419,7 @@ def test_publish_worker_persists_instagram_ids(db, make_user, make_video, make_p
     assert saved.status == PublishStatus.SUCCESS
     assert saved.provider_container_id == "container_saved"
     assert saved.platform_post_id == "media_saved"
-    assert saved.publish_url == "https://www.instagram.com/reel/WORKER123/"
+    assert saved.publish_url == "https://www.instagram.com/p/WORKER123/"
     assert saved.platform_url == "https://www.instagram.com/worker.creator/"
     response = PublishTaskOut.from_model(
         saved,
@@ -420,7 +428,7 @@ def test_publish_worker_persists_instagram_ids(db, make_user, make_video, make_p
     )
     assert response.provider_container_id == "container_saved"
     assert response.platform_post_id == "media_saved"
-    assert response.publish_url == "https://www.instagram.com/reel/WORKER123/"
+    assert response.publish_url == "https://www.instagram.com/p/WORKER123/"
     assert response.platform_url == "https://www.instagram.com/worker.creator/"
 
 

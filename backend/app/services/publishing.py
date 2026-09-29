@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import uuid
@@ -6,6 +7,7 @@ from fastapi import UploadFile
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.adapters.publishing import PublishAdapterFactory
 from app.core.enums import AuditResult, PublishStatus, UserRole
 from app.core.exceptions import AppError, ConflictError, ForbiddenError, NotFoundError, ValidationError
 from app.models import PublishAccount, PublishPlatform, PublishTask, User, Video
@@ -13,9 +15,38 @@ from app.schemas.publishing import PublishBatchCreate, PublishTaskOut
 from app.services.audit import add_audit_log
 from app.services.generation import GenerationService
 from app.services.videos import VideoService
+from app.utils.publish_urls import resolve_publish_url
 
 
 class PublishingService:
+    @staticmethod
+    def _repair_instagram_result_url(
+        db: Session,
+        task: PublishTask,
+        platform: PublishPlatform,
+        account: PublishAccount,
+    ) -> None:
+        if (
+            platform.code.strip().lower() != "instagram"
+            or task.status != PublishStatus.SUCCESS
+            or not task.platform_post_id
+            or resolve_publish_url("instagram", task.platform_post_id, task.publish_url)
+        ):
+            return
+        try:
+            adapter = PublishAdapterFactory.create(platform, account)
+            result = asyncio.run(adapter.get_publish_status(task.platform_post_id))
+        except Exception:
+            # Publishing already succeeded. A failed read must not change its status or hide history.
+            return
+        if not result.publish_url:
+            return
+        task.publish_url = result.publish_url
+        if result.platform_url:
+            task.platform_url = result.platform_url
+        db.commit()
+        db.refresh(task)
+
     @staticmethod
     def _task_key(
         request_key: str,
@@ -234,6 +265,7 @@ class PublishingService:
             .where(PublishTask.id == task.id)
         ).one()
         video, platform, account = row
+        cls._repair_instagram_result_url(db, task, platform, account)
         return PublishTaskOut.from_model(
             task,
             video_title=video.title,

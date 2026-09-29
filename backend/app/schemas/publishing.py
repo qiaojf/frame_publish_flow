@@ -6,7 +6,7 @@ from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 from app.core.enums import PublishStatus
 from app.models import PublishAccount, PublishTask
-from app.utils.publish_urls import normalize_web_url, resolve_platform_url, resolve_publish_url
+from app.utils.publish_urls import normalize_platform_url, resolve_platform_url, resolve_publish_url
 
 
 class PublishTarget(BaseModel):
@@ -110,7 +110,7 @@ class PublishTaskOut(BaseModel):
         resolved_platform_url = (
             resolve_platform_url(code, account) if code and account else None
         )
-        stored_platform_url = normalize_web_url(task.platform_url)
+        stored_platform_url = normalize_platform_url(code, task.platform_url)
         return cls(
             id=task.id,
             video_id=task.video_id,
@@ -126,11 +126,7 @@ class PublishTaskOut(BaseModel):
             published_at=task.completed_at,
             created_at=task.created_at,
             publish_url=publish_url,
-            platform_url=(
-                resolved_platform_url
-                if code in {"instagram", "youtube"} and resolved_platform_url
-                else stored_platform_url or resolved_platform_url
-            ),
+            platform_url=stored_platform_url or resolved_platform_url,
             error_code=task.error_code,
             error_message=task.error_message,
             progress=task.progress,

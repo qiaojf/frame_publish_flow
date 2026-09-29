@@ -53,9 +53,19 @@ def test_instagram_platform_url_rejects_account_type_and_uses_selected_account_n
 
 
 def test_content_urls_are_built_from_trimmed_platform_ids():
-    assert resolve_publish_url("instagram", " Dd2s93-gYEZ ") == (
+    assert resolve_publish_url(
+        "instagram",
+        " 18180224632437876 ",
+        "https://www.instagram.com/reel/Dd2s93-gYEZ/",
+    ) == (
         "https://www.instagram.com/p/Dd2s93-gYEZ/"
     )
+    assert resolve_publish_url("instagram", "18180224632437876") is None
+    assert resolve_publish_url(
+        "instagram",
+        "18180224632437876",
+        "https://www.instagram.com/p/18180224632437876/",
+    ) is None
     assert resolve_publish_url("youtube", " N9LiTQZgda8\u00a0") == (
         "https://www.youtube.com/watch?v=N9LiTQZgda8"
     )
@@ -142,6 +152,7 @@ def test_instagram_history_replaces_stale_account_type_url_and_builds_post_url(
     make_video,
     make_platform,
     auth_headers,
+    monkeypatch,
 ):
     user = make_user()
     video = make_video(user)
@@ -159,14 +170,33 @@ def test_instagram_history_replaces_stale_account_type_url_and_builds_post_url(
         tags=[],
         platform_payload={},
         platform_overrides={},
-        platform_post_id="Dd2s93-gYEZ",
-        publish_url=None,
+        platform_post_id="18180224632437876",
+        publish_url="https://www.instagram.com/p/18180224632437876/",
         platform_url="https://www.instagram.com/MEDIA_CREATOR/",
         idempotency_key="historical-instagram-url-mapping",
         status=PublishStatus.SUCCESS,
     )
     db.add(task)
     db.commit()
+
+    lookup_calls = 0
+
+    class HistoricalLookupAdapter:
+        async def get_publish_status(self, platform_post_id):
+            nonlocal lookup_calls
+            lookup_calls += 1
+            assert platform_post_id == "18180224632437876"
+            return PublishResult(
+                status="success",
+                platform_post_id=platform_post_id,
+                publish_url="https://www.instagram.com/p/Dd2s93-gYEZ/",
+                platform_url="https://www.instagram.com/junfeng05/",
+            )
+
+    monkeypatch.setattr(
+        "app.services.publishing.PublishAdapterFactory.create",
+        lambda selected_platform, account: HistoricalLookupAdapter(),
+    )
 
     response = client.get(
         "/api/v1/publish/tasks",
@@ -178,6 +208,20 @@ def test_instagram_history_replaces_stale_account_type_url_and_builds_post_url(
     result = response.json()["items"][0]
     assert result["publish_url"] == "https://www.instagram.com/p/Dd2s93-gYEZ/"
     assert result["platform_url"] == "https://www.instagram.com/junfeng05/"
+    assert lookup_calls == 1
+
+    db.expire_all()
+    saved = db.get(PublishTask, task.id)
+    assert saved.publish_url == "https://www.instagram.com/p/Dd2s93-gYEZ/"
+    assert saved.platform_url == "https://www.instagram.com/junfeng05/"
+
+    second_response = client.get(
+        "/api/v1/publish/tasks",
+        params={"video_id": str(video.id)},
+        headers=auth_headers(user),
+    )
+    assert second_response.status_code == 200
+    assert lookup_calls == 1
 
 
 def test_worker_reuses_existing_permalink_metadata(
@@ -223,5 +267,5 @@ def test_worker_reuses_existing_permalink_metadata(
     db.expire_all()
     saved = db.get(PublishTask, task.id)
 
-    assert saved.publish_url == "https://www.instagram.com/reel/LEGACY123/"
+    assert saved.publish_url == "https://www.instagram.com/p/LEGACY123/"
     assert saved.platform_url == "https://www.instagram.com/legacy.creator/"

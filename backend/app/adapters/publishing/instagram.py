@@ -13,7 +13,12 @@ from app.adapters.publishing.configured import ConfiguredPublishAdapter
 from app.core.logging import logger
 from app.core.security import decrypt_secret
 from app.models import PublishAccount, PublishPlatform
-from app.utils.publish_urls import normalize_web_url, resolve_platform_url, resolve_publish_url
+from app.utils.publish_urls import (
+    instagram_profile_url,
+    normalize_web_url,
+    resolve_platform_url,
+    resolve_publish_url,
+)
 
 
 _API_VERSION_PATTERN = re.compile(r"^v\d+\.\d+$")
@@ -448,9 +453,45 @@ class InstagramPublishAdapter(ConfiguredPublishAdapter):
             container_id=container_id,
         )
 
+    async def fetch_published_media_details(
+        self, client: httpx.AsyncClient, media_id: str
+    ) -> tuple[str | None, str | None]:
+        """Read the permalink/username for an already-published media object."""
+        try:
+            response = await client.get(
+                self._endpoint(media_id),
+                params={
+                    "fields": "permalink,username",
+                    "access_token": self.access_token,
+                },
+            )
+        except (httpx.TimeoutException, httpx.RequestError):
+            logger.warning(
+                "instagram_published_media_lookup_failed",
+                platform="instagram",
+                stage="GET_PUBLISHED_MEDIA",
+                media_id=media_id,
+                reason="transport_error",
+            )
+            return None, None
+
+        payload = self._json_payload(response)
+        if response.is_error or "error" in payload:
+            logger.warning(
+                "instagram_published_media_lookup_failed",
+                platform="instagram",
+                stage="GET_PUBLISHED_MEDIA",
+                media_id=media_id,
+                http_status=response.status_code,
+            )
+            return None, None
+        permalink = normalize_web_url(payload.get("permalink"))
+        username = str(payload.get("username") or "").strip() or None
+        return permalink, username
+
     async def publish_media(
         self, client: httpx.AsyncClient, container_id: str
-    ) -> tuple[str, str | None]:
+    ) -> tuple[str, str | None, str | None]:
         stage = "PUBLISH_MEDIA"
         logger.info(
             "instagram_publish_started",
@@ -496,9 +537,17 @@ class InstagramPublishAdapter(ConfiguredPublishAdapter):
             container_id=container_id,
             media_id=result,
         )
-        return result, normalize_web_url(
+        permalink = normalize_web_url(
             response_payload.get("permalink") or response_payload.get("permalink_url")
         )
+        username = str(response_payload.get("username") or "").strip() or None
+        if not permalink or not username:
+            looked_up_permalink, looked_up_username = await self.fetch_published_media_details(
+                client, result
+            )
+            permalink = permalink or looked_up_permalink
+            username = username or looked_up_username
+        return result, permalink, username
 
     async def publish_video(self, request: PublishRequest) -> PublishResult:
         configured, message, details = self.configuration_status()
@@ -513,12 +562,56 @@ class InstagramPublishAdapter(ConfiguredPublishAdapter):
         async with httpx.AsyncClient(timeout=timeout, transport=self._transport) as client:
             container_id = await self.create_media_container(client, payload)
             await self.wait_for_container(client, container_id)
-            media_id, permalink = await self.publish_media(client, container_id)
+            media_id, permalink, published_username = await self.publish_media(client, container_id)
         return PublishResult(
             status="success",
             platform_post_id=media_id,
             publish_url=resolve_publish_url("instagram", media_id, permalink),
-            platform_url=resolve_platform_url("instagram", self.account),
+            platform_url=(
+                instagram_profile_url(published_username)
+                or resolve_platform_url("instagram", self.account)
+            ),
             provider_container_id=container_id,
-            metadata={"container_id": container_id, "media_id": media_id, "permalink": permalink},
+            metadata={
+                "container_id": container_id,
+                "media_id": media_id,
+                "permalink": permalink,
+                "username": published_username,
+            },
+        )
+
+    async def get_publish_status(self, platform_post_id: str) -> PublishResult:
+        media_id = str(platform_post_id or "").strip()
+        if not media_id:
+            raise InstagramPublishError(
+                "INSTAGRAM_MEDIA_ID_MISSING",
+                "Instagram media id is required",
+                stage="GET_PUBLISHED_MEDIA",
+            )
+        configured, message, details = self.configuration_status()
+        if not configured:
+            raise InstagramPublishError(
+                "INSTAGRAM_CONFIGURATION_INVALID",
+                f"{message}: {', '.join(details['missing'])}",
+                stage="GET_PUBLISHED_MEDIA",
+            )
+        timeout = httpx.Timeout(self.http_timeout_seconds)
+        async with httpx.AsyncClient(timeout=timeout, transport=self._transport) as client:
+            permalink, username = await self.fetch_published_media_details(client, media_id)
+        publish_url = resolve_publish_url("instagram", media_id, permalink)
+        if not publish_url:
+            raise InstagramPublishError(
+                "INSTAGRAM_PERMALINK_UNAVAILABLE",
+                "Instagram media details did not include a valid permalink",
+                stage="GET_PUBLISHED_MEDIA",
+            )
+        return PublishResult(
+            status="success",
+            platform_post_id=media_id,
+            publish_url=publish_url,
+            platform_url=(
+                instagram_profile_url(username)
+                or resolve_platform_url("instagram", self.account)
+            ),
+            metadata={"media_id": media_id, "permalink": permalink, "username": username},
         )

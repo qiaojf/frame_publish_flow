@@ -4,6 +4,7 @@ from urllib.parse import quote, urlsplit
 
 
 _INSTAGRAM_USERNAME = re.compile(r"^[A-Za-z0-9._]+$")
+_INSTAGRAM_SHORTCODE = re.compile(r"^[A-Za-z0-9_-]+$")
 _INSTAGRAM_ACCOUNT_TYPES = {"BUSINESS", "CREATOR", "MEDIA_CREATOR", "PERSONAL"}
 
 
@@ -17,6 +18,28 @@ def normalize_web_url(value: Any) -> str | None:
     return text
 
 
+def instagram_profile_url(username: Any) -> str | None:
+    value = str(username or "").strip().lstrip("@")
+    if (
+        not value
+        or value.upper() in _INSTAGRAM_ACCOUNT_TYPES
+        or not _INSTAGRAM_USERNAME.fullmatch(value)
+    ):
+        return None
+    return f"https://www.instagram.com/{value}/"
+
+
+def normalize_platform_url(platform_code: str, value: Any) -> str | None:
+    url = normalize_web_url(value)
+    if not url or str(platform_code or "").strip().lower() != "instagram":
+        return url
+    parsed = urlsplit(url)
+    if parsed.hostname not in {"instagram.com", "www.instagram.com"}:
+        return url
+    username = next((part for part in parsed.path.split("/") if part), "")
+    return url if instagram_profile_url(username) else None
+
+
 def resolve_publish_url(
     platform_code: str,
     platform_post_id: Any,
@@ -28,9 +51,21 @@ def resolve_publish_url(
     current = normalize_web_url(current_url)
 
     if code == "instagram":
-        return current or (
-            f"https://www.instagram.com/p/{quote(post_id, safe='')}/" if post_id else None
-        )
+        if not current:
+            return None
+        parsed = urlsplit(current)
+        parts = [part for part in parsed.path.split("/") if part]
+        if (
+            parsed.hostname not in {"instagram.com", "www.instagram.com"}
+            or len(parts) < 2
+            or parts[0].lower() not in {"p", "reel", "reels", "tv"}
+            or not _INSTAGRAM_SHORTCODE.fullmatch(parts[1])
+        ):
+            return None
+        shortcode = parts[1]
+        if post_id.isdigit() and shortcode == post_id:
+            return None
+        return f"https://www.instagram.com/p/{quote(shortcode, safe='')}/"
     if code == "youtube":
         return (
             f"https://www.youtube.com/watch?v={quote(post_id, safe='')}"
@@ -54,7 +89,7 @@ def resolve_platform_url(platform_code: str, account: Any) -> str | None:
         "facebook": ("facebook_page_url", "page_url", "platform_url"),
     }.get(code, ("platform_url",))
     for key in explicit_keys:
-        explicit = normalize_web_url(config.get(key))
+        explicit = normalize_platform_url(code, config.get(key))
         if explicit:
             return explicit
 
@@ -68,13 +103,9 @@ def resolve_platform_url(platform_code: str, account: Any) -> str | None:
             account.name,
         )
         for candidate in candidates:
-            username = str(candidate or "").strip().lstrip("@")
-            if (
-                username
-                and username.upper() not in _INSTAGRAM_ACCOUNT_TYPES
-                and _INSTAGRAM_USERNAME.fullmatch(username)
-            ):
-                return f"https://www.instagram.com/{username}/"
+            profile_url = instagram_profile_url(candidate)
+            if profile_url:
+                return profile_url
     elif code == "youtube":
         handle = str(config.get("channel_handle") or config.get("handle") or "").strip()
         if not handle and identifier.startswith("@"):
