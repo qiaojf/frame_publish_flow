@@ -35,6 +35,7 @@ export interface PublishTask {
   provider_upload_id?: string
   error_code?: string
   error_message?: string
+  progress?: number
   retry_count?: number
 }
 

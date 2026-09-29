@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 
@@ -24,6 +25,8 @@ class PublishRequest:
     platform_payload: dict[str, Any]
     overrides: dict[str, Any]
     idempotency_key: str
+    progress_callback: Callable[[int], None] | None = None
+    existing_platform_post_id: str | None = None
 
 
 @dataclass(slots=True)

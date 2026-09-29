@@ -23,6 +23,7 @@ export interface PublishAccount {
   access_token_masked?: string
   refresh_token_masked?: string
   token_expires_at?: string
+  authorized_scopes?: string[]
   extra_config?: Record<string, unknown>
 }
 
@@ -55,5 +56,6 @@ export interface PublishAccountInput {
   access_token?: string
   refresh_token?: string
   token_expires_at?: string
+  authorized_scopes?: string[]
   extra_config?: Record<string, unknown>
 }

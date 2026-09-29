@@ -73,6 +73,7 @@ class PublishTaskOut(BaseModel):
     publish_url: str | None = None
     error_code: str | None = None
     error_message: str | None = None
+    progress: int = 0
     retry_count: int
     provider_upload_id: str | None = None
     provider_container_id: str | None = None
@@ -113,6 +114,7 @@ class PublishTaskOut(BaseModel):
             publish_url=publish_url,
             error_code=task.error_code,
             error_message=task.error_message,
+            progress=task.progress,
             retry_count=task.retry_count,
             provider_upload_id=task.provider_upload_id,
             provider_container_id=task.provider_container_id,

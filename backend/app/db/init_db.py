@@ -175,11 +175,35 @@ PUBLISH_PLATFORMS: list[dict[str, Any]] = [
     {
         "name": "YouTube", "code": "youtube", "adapter_type": "youtube_data_api_v3",
         "api_base_url": "https://www.googleapis.com/youtube/v3", "auth_type": "oauth2", "enabled": False,
-        "capabilities": {"public_publish": True, "supports_video": True, "supports_title": True,
-                         "supports_description": True, "supports_tags": True, "supports_privacy": True,
-                         "supports_schedule": True, "supports_thumbnail": True, "supports_made_for_kids": True,
-                         "supports_synthetic_media_disclosure": True, "requires_public_media_url": False,
-                         "requires_oauth": True},
+        "capabilities": {
+            "public_publish": True, "supports_video": True, "supports_title": True,
+            "supports_description": True, "supports_tags": True, "supports_privacy": True,
+            "supports_schedule": False, "supports_thumbnail": False, "supports_cover": False,
+            "supports_made_for_kids": True,
+            "supports_synthetic_media_disclosure": True, "requires_public_media_url": False,
+            "requires_oauth": True,
+            "fields": [
+                {"key": "privacy_status", "label": "隐私状态", "type": "select", "required": False,
+                 "default": "private", "options": ["private", "unlisted", "public"]},
+                {"key": "category_id", "label": "视频分类 ID", "type": "text", "required": False,
+                 "default": "22"},
+                {"key": "self_declared_made_for_kids", "label": "面向儿童", "type": "boolean",
+                 "required": False, "default": False},
+                {"key": "contains_synthetic_media", "label": "包含合成媒体", "type": "boolean",
+                 "required": False, "default": True},
+            ],
+        },
+        "extra_config": {
+            "upload_base_url": "https://www.googleapis.com/upload/youtube/v3",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "poll_interval_seconds": 5,
+            "processing_timeout_seconds": 600,
+            "http_timeout_seconds": 60,
+            "upload_chunk_size": 8388608,
+            "max_retries": 5,
+            "retry_backoff_seconds": 1,
+            "seed_revision": 1,
+        },
     },
     {
         "name": "Facebook", "code": "facebook", "adapter_type": "facebook_graph",
@@ -360,12 +384,12 @@ def _seed_publish_platforms(db: Any) -> None:
                 **platform_values,
                 description="真实平台模板；完成 OAuth 连接和验证后再启用。",
             ))
-        elif values["code"] == "instagram" and int(
+        elif values["code"] in {"instagram", "youtube"} and int(
             (platform.extra_config or {}).get("seed_revision", 0)
         ) < int(values["extra_config"]["seed_revision"]):
             platform.adapter_type = values["adapter_type"]
             platform.api_base_url = platform.api_base_url or values["api_base_url"]
-            platform.api_version = platform.api_version or values["api_version"]
+            platform.api_version = platform.api_version or values.get("api_version")
             platform.auth_type = values["auth_type"]
             platform.capabilities = {**(platform.capabilities or {}), **values["capabilities"]}
             platform.extra_config = {

@@ -136,7 +136,7 @@ const zhCN = {
     searchAccount: '搜索账号名称或标识', totalAccounts: '共 {count} 个账号', noAccounts: '尚未配置发布账号', accountIdentifier: '账号标识', tokenExpires: 'Token 到期',
     editAccount: '编辑发布账号', addAccountTitle: '新增发布账号', secretKeepNotice: '安全字段不会自动回填；留空表示不修改现有 Secret。',
     accountName: '账号名称', instagramUserId: 'Instagram User ID（IG 用户编号）', instagramIdPlaceholder: '例如：17841400000000000（不是 @用户名）',
-    tokenExpiry: 'Token 过期时间', chooseExpiry: '选择过期时间', saveAccount: '保存账号', platformRequired: '请选择发布平台', accountNameRequired: '请输入账号名称',
+    tokenExpiry: 'Token 过期时间', chooseExpiry: '选择过期时间', oauthScopes: 'OAuth 权限范围', oauthScopesPlaceholder: '选择或输入 OAuth Scope', saveAccount: '保存账号', platformRequired: '请选择发布平台', accountNameRequired: '请输入账号名称',
     accountListFailed: '账号列表加载失败', instagramIdRequired: '请填写 Instagram User ID（不是 @用户名）', accountSaved: '发布账号已保存', accountSaveFailed: '账号保存失败',
     accountStatusUpdated: '账号状态已更新', deleteAccountPrompt: '确定删除发布账号“{name}”？', deleteAccountTitle: '删除账号', accountDeleted: '账号已删除',
     logsTitle: '操作日志', logsIntro: '只读查看登录、生成、发布和系统配置操作的执行结果。', searchLog: '用户、操作或资源', allResults: '全部结果',

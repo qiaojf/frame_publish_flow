@@ -20,6 +20,8 @@ def _mark_failed(
     message: str,
     *,
     provider_container_id: str | None = None,
+    platform_post_id: str | None = None,
+    platform_post_url: str | None = None,
 ) -> None:
     with SessionLocal() as db:
         task = db.get(PublishTask, task_id)
@@ -30,6 +32,10 @@ def _mark_failed(
         task.error_message = message[:500]
         if provider_container_id:
             task.provider_container_id = provider_container_id
+        if platform_post_id:
+            task.platform_post_id = platform_post_id
+        if platform_post_url:
+            task.platform_post_url = platform_post_url
         task.completed_at = datetime.now(UTC)
         add_audit_log(
             db,
@@ -40,6 +46,16 @@ def _mark_failed(
             result=AuditResult.FAILED,
             message=task.error_message,
         )
+        db.commit()
+
+
+def _update_progress(task_id: uuid.UUID, progress: int) -> None:
+    """Persist upload progress independently from the long-running worker session."""
+    with SessionLocal() as db:
+        task = db.get(PublishTask, task_id)
+        if task is None:
+            return
+        task.progress = max(0, min(100, int(progress)))
         db.commit()
 
 
@@ -65,6 +81,7 @@ def run_publish_task(self, task_id: str) -> None:  # type: ignore[no-untyped-def
                 raise PermanentPublishError("发布账号与平台不匹配")
             task.status = PublishStatus.PUBLISHING
             task.started_at = datetime.now(UTC)
+            task.progress = 0
             db.commit()
             adapter = PublishAdapterFactory.create(platform, account)
             request = PublishRequest(
@@ -78,6 +95,8 @@ def run_publish_task(self, task_id: str) -> None:  # type: ignore[no-untyped-def
                 platform_payload=task.platform_payload,
                 overrides=task.platform_overrides,
                 idempotency_key=task.idempotency_key,
+                progress_callback=lambda value: _update_progress(task_uuid, value),
+                existing_platform_post_id=task.platform_post_id,
             )
             result = asyncio.run(adapter.publish_video(request))
             task.provider_container_id = result.provider_container_id
@@ -88,6 +107,7 @@ def run_publish_task(self, task_id: str) -> None:  # type: ignore[no-untyped-def
                 db.commit()
                 return
             task.status = PublishStatus.SUCCESS
+            task.progress = 100
             task.completed_at = datetime.now(UTC)
             task.error_code = None
             task.error_message = None
@@ -122,6 +142,12 @@ def run_publish_task(self, task_id: str) -> None:  # type: ignore[no-untyped-def
             getattr(exc, "error_code", "PUBLISH_REJECTED"),
             str(exc),
             provider_container_id=getattr(exc, "container_id", None),
+            platform_post_id=getattr(exc, "video_id", None),
+            platform_post_url=(
+                f"https://www.youtube.com/watch?v={exc.video_id}"
+                if getattr(exc, "video_id", None)
+                else None
+            ),
         )
     except Exception:
         _mark_failed(task_uuid, "PUBLISH_FAILED", "发布处理失败，请检查平台配置")
