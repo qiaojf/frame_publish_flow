@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { pinia } from '@/stores'
 import { useAuthStore } from '@/stores/auth'
+import AccountsView from '@/views/admin/AccountsView.vue'
 
 declare module 'vue-router' {
   interface RouteMeta { titleKey?: string; requiresAuth?: boolean; requiresAdmin?: boolean }
@@ -25,7 +26,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'admin/models/:id', component: () => import('@/views/admin/ModelEditorView.vue'), meta: { titleKey: 'routes.modelConfig', requiresAdmin: true } },
       { path: 'admin/platforms', component: () => import('@/views/admin/PlatformsView.vue'), meta: { titleKey: 'routes.platforms', requiresAdmin: true } },
       { path: 'admin/platforms/:id', component: () => import('@/views/admin/PlatformEditorView.vue'), meta: { titleKey: 'routes.platformConfig', requiresAdmin: true } },
-      { path: 'admin/accounts', component: () => import('@/views/admin/AccountsView.vue'), meta: { titleKey: 'routes.accounts', requiresAdmin: true } },
+      { path: 'admin/accounts', component: AccountsView, meta: { titleKey: 'routes.accounts', requiresAdmin: true } },
       { path: 'admin/logs', component: () => import('@/views/admin/LogsView.vue'), meta: { titleKey: 'routes.logs', requiresAdmin: true } },
     ],
   },
