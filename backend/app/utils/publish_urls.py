@@ -4,6 +4,7 @@ from urllib.parse import quote, urlsplit
 
 
 _INSTAGRAM_USERNAME = re.compile(r"^[A-Za-z0-9._]+$")
+_INSTAGRAM_ACCOUNT_TYPES = {"BUSINESS", "CREATOR", "MEDIA_CREATOR", "PERSONAL"}
 
 
 def normalize_web_url(value: Any) -> str | None:
@@ -14,6 +15,32 @@ def normalize_web_url(value: Any) -> str | None:
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
         return None
     return text
+
+
+def resolve_publish_url(
+    platform_code: str,
+    platform_post_id: Any,
+    current_url: Any = None,
+) -> str | None:
+    """Return a canonical content URL without making another platform API call."""
+    code = str(platform_code or "").strip().lower()
+    post_id = str(platform_post_id or "").strip()
+    current = normalize_web_url(current_url)
+
+    if code == "instagram":
+        return current or (
+            f"https://www.instagram.com/p/{quote(post_id, safe='')}/" if post_id else None
+        )
+    if code == "youtube":
+        return (
+            f"https://www.youtube.com/watch?v={quote(post_id, safe='')}"
+            if post_id
+            else current
+        )
+
+    # Mock and legacy internal results intentionally use application-relative URLs.
+    relative = str(current_url or "").strip()
+    return current or (relative if relative.startswith("/") else None)
 
 
 def resolve_platform_url(platform_code: str, account: Any) -> str | None:
@@ -33,9 +60,21 @@ def resolve_platform_url(platform_code: str, account: Any) -> str | None:
 
     identifier = str(account.account_identifier or "").strip()
     if code == "instagram":
-        username = str(config.get("username") or identifier).strip().lstrip("@")
-        if username and _INSTAGRAM_USERNAME.fullmatch(username):
-            return f"https://www.instagram.com/{username}/"
+        candidates = (
+            config.get("instagram_username"),
+            config.get("ig_username"),
+            config.get("username"),
+            identifier,
+            account.name,
+        )
+        for candidate in candidates:
+            username = str(candidate or "").strip().lstrip("@")
+            if (
+                username
+                and username.upper() not in _INSTAGRAM_ACCOUNT_TYPES
+                and _INSTAGRAM_USERNAME.fullmatch(username)
+            ):
+                return f"https://www.instagram.com/{username}/"
     elif code == "youtube":
         handle = str(config.get("channel_handle") or config.get("handle") or "").strip()
         if not handle and identifier.startswith("@"):

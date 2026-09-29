@@ -11,7 +11,7 @@
             <section class="surface publish-history">
               <div class="surface-header"><div><h2>{{ t('video.publishHistory') }}</h2><p>{{ t('video.publishHistoryHint') }}</p></div></div>
               <DataState :loading="historyLoading" :empty="!history.length" :empty-text="t('video.noPublishHistory')">
-                <template #content><el-table :data="history"><el-table-column prop="platform_name" :label="t('common.platform')" /><el-table-column prop="account_name" :label="t('common.account')" /><el-table-column :label="t('common.status')"><template #default="scope"><StatusTag :status="scope.row.status" /></template></el-table-column><el-table-column :label="t('common.time')" min-width="150"><template #default="scope">{{ formatDate(scope.row.published_at || scope.row.created_at) }}</template></el-table-column><el-table-column :label="t('common.result')"><template #default="scope"><a v-if="scope.row.publish_url" class="link-button" :href="scope.row.publish_url" target="_blank" rel="noopener">{{ t('video.openLink') }}</a><span v-else-if="scope.row.error_message" class="danger-text">{{ getBusinessErrorMessage(scope.row.error_code, scope.row.error_message) }}</span><span v-else>—</span></template></el-table-column></el-table></template>
+                <template #content><el-table :data="history"><el-table-column prop="platform_name" :label="t('common.platform')" /><el-table-column prop="account_name" :label="t('common.account')" /><el-table-column :label="t('common.status')"><template #default="scope"><StatusTag :status="scope.row.status" /></template></el-table-column><el-table-column :label="t('common.time')" min-width="150"><template #default="scope">{{ formatDate(scope.row.published_at || scope.row.created_at) }}</template></el-table-column><el-table-column :label="t('common.result')"><template #default="scope"><a v-if="cleanUrl(scope.row.publish_url)" class="link-button" :href="cleanUrl(scope.row.publish_url)" target="_blank" rel="noopener">{{ t('video.openLink') }}</a><span v-else-if="scope.row.error_message" class="danger-text">{{ getBusinessErrorMessage(scope.row.error_code, scope.row.error_message) }}</span><span v-else>—</span></template></el-table-column></el-table></template>
               </DataState>
             </section>
           </div>
@@ -37,6 +37,7 @@ import type { VideoAsset } from '@/types/video'
 import type { PublishTask } from '@/types/publish'
 import { formatBytes, formatDate, pickFilename } from '@/utils/format'
 import { getBusinessErrorMessage, getErrorMessage } from '@/utils/errors'
+import { cleanUrl } from '@/utils/url'
 
 const route = useRoute(); const router = useRouter(); const id = String(route.params.id)
 const { t } = useI18n()

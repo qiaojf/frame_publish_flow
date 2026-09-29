@@ -13,7 +13,7 @@
             <el-table-column :label="t('publish.publishAccountColumn')" min-width="140"><template #default="scope">{{ scope.row.account_name || t('common.defaultAccount') }}</template></el-table-column>
             <el-table-column :label="t('common.status')" width="110"><template #default="scope"><StatusTag :status="scope.row.status" /></template></el-table-column>
             <el-table-column :label="t('publish.publishTime')" min-width="165"><template #default="scope">{{ formatDate(scope.row.published_at || scope.row.created_at) }}</template></el-table-column>
-            <el-table-column :label="t('common.result')" min-width="240"><template #default="scope"><div v-if="scope.row.publish_url || scope.row.platform_url" class="result-links"><button v-if="isInternalUrl(scope.row.publish_url)" class="link-button" @click="$router.push(scope.row.publish_url)">{{ t('publish.viewPublishedContent') }}<el-icon><TopRight /></el-icon></button><a v-else-if="scope.row.publish_url" class="link-button" :href="scope.row.publish_url" target="_blank" rel="noopener">{{ t('publish.viewPublishedContent') }}<el-icon><TopRight /></el-icon></a><a v-if="scope.row.platform_url" class="link-button" :href="scope.row.platform_url" target="_blank" rel="noopener">{{ t('publish.openPlatformHome') }}<el-icon><TopRight /></el-icon></a></div><span v-else-if="scope.row.error_message" class="error-cell">{{ getBusinessErrorMessage(scope.row.error_code, scope.row.error_message) }}</span><span v-else>—</span></template></el-table-column>
+            <el-table-column :label="t('common.result')" min-width="240"><template #default="scope"><div v-if="cleanUrl(scope.row.publish_url) || cleanUrl(scope.row.platform_url)" class="result-links"><button v-if="isInternalUrl(scope.row.publish_url)" class="link-button" @click="$router.push(cleanUrl(scope.row.publish_url))">{{ t('publish.viewPublishedContent') }}<el-icon><TopRight /></el-icon></button><a v-else-if="cleanUrl(scope.row.publish_url)" class="link-button" :href="cleanUrl(scope.row.publish_url)" target="_blank" rel="noopener">{{ t('publish.viewPublishedContent') }}<el-icon><TopRight /></el-icon></a><a v-if="cleanUrl(scope.row.platform_url)" class="link-button" :href="cleanUrl(scope.row.platform_url)" target="_blank" rel="noopener">{{ t('publish.openPlatformHome') }}<el-icon><TopRight /></el-icon></a></div><span v-else-if="scope.row.error_message" class="error-cell">{{ getBusinessErrorMessage(scope.row.error_code, scope.row.error_message) }}</span><span v-else>—</span></template></el-table-column>
             <el-table-column :label="t('common.actions')" width="110" fixed="right"><template #default="scope"><el-button v-if="scope.row.status === 'failed'" text type="primary" :loading="retryingId === scope.row.id" @click="retry(scope.row)">{{ t('publish.republish') }}</el-button><span v-else>—</span></template></el-table-column>
           </el-table>
         </template>
@@ -37,6 +37,7 @@ import type { PublishTask } from '@/types/publish'
 import type { PublishPlatform } from '@/types/platform'
 import { formatDate } from '@/utils/format'
 import { getBusinessErrorMessage, getErrorMessage } from '@/utils/errors'
+import { cleanUrl } from '@/utils/url'
 
 const tasks = ref<PublishTask[]>([]); const platforms = ref<PublishPlatform[]>([]); const loading = ref(true); const error = ref(''); const retryingId = ref('')
 const { t } = useI18n()
@@ -53,7 +54,7 @@ async function load() {
 }
 function schedulePoll() { window.clearTimeout(pollTimer); if (tasks.value.some((task) => ['pending', 'publishing'].includes(task.status))) pollTimer = window.setTimeout(load, pollInterval) }
 function applyFilters() { page.value = 1; load() }
-function isInternalUrl(value?: string) { return Boolean(value?.startsWith('/')) }
+function isInternalUrl(value?: string) { return cleanUrl(value).startsWith('/') }
 async function retry(task: PublishTask) {
   retryingId.value = task.id
   try { await retryPublishTask(task.id); ElMessage.success(t('publish.retryCreated', { platform: task.platform_name })); await load() }

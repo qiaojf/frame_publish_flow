@@ -6,7 +6,7 @@ from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 from app.core.enums import PublishStatus
 from app.models import PublishAccount, PublishTask
-from app.utils.publish_urls import resolve_platform_url
+from app.utils.publish_urls import normalize_web_url, resolve_platform_url, resolve_publish_url
 
 
 class PublishTarget(BaseModel):
@@ -94,13 +94,23 @@ class PublishTaskOut(BaseModel):
         platform_code: str | None = None,
         account: PublishAccount | None = None,
     ) -> "PublishTaskOut":
-        publish_url = task.publish_url
+        code = str(platform_code or "").strip().lower()
+        publish_url = resolve_publish_url(code, task.platform_post_id, task.publish_url)
+        is_legacy_mock_url = bool(
+            publish_url
+            and (
+                publish_url.startswith("https://mock.local/posts/")
+                or publish_url.startswith("http://mock.local/posts/")
+            )
+        )
         if task.platform_post_id and (
-            not publish_url
-            or publish_url.startswith("https://mock.local/posts/")
-            or publish_url.startswith("http://mock.local/posts/")
+            (code == "mock" and not publish_url) or is_legacy_mock_url
         ):
             publish_url = f"/publish/{task.platform_post_id}"
+        resolved_platform_url = (
+            resolve_platform_url(code, account) if code and account else None
+        )
+        stored_platform_url = normalize_web_url(task.platform_url)
         return cls(
             id=task.id,
             video_id=task.video_id,
@@ -117,8 +127,9 @@ class PublishTaskOut(BaseModel):
             created_at=task.created_at,
             publish_url=publish_url,
             platform_url=(
-                task.platform_url
-                or (resolve_platform_url(platform_code, account) if platform_code and account else None)
+                resolved_platform_url
+                if code in {"instagram", "youtube"} and resolved_platform_url
+                else stored_platform_url or resolved_platform_url
             ),
             error_code=task.error_code,
             error_message=task.error_message,

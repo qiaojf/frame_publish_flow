@@ -13,7 +13,7 @@ from app.adapters.publishing.configured import ConfiguredPublishAdapter
 from app.core.logging import logger
 from app.core.security import decrypt_secret
 from app.models import PublishAccount, PublishPlatform
-from app.utils.publish_urls import normalize_web_url, resolve_platform_url
+from app.utils.publish_urls import normalize_web_url, resolve_platform_url, resolve_publish_url
 
 
 _API_VERSION_PATTERN = re.compile(r"^v\d+\.\d+$")
@@ -517,7 +517,7 @@ class InstagramPublishAdapter(ConfiguredPublishAdapter):
         return PublishResult(
             status="success",
             platform_post_id=media_id,
-            publish_url=permalink,
+            publish_url=resolve_publish_url("instagram", media_id, permalink),
             platform_url=resolve_platform_url("instagram", self.account),
             provider_container_id=container_id,
             metadata={"container_id": container_id, "media_id": media_id, "permalink": permalink},

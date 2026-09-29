@@ -12,7 +12,7 @@ from app.models import PublishAccount, PublishPlatform, PublishTask, Video
 from app.services.audit import add_audit_log
 from app.storage import get_storage
 from app.tasks.celery_app import celery_app
-from app.utils.publish_urls import normalize_web_url, resolve_platform_url
+from app.utils.publish_urls import normalize_web_url, resolve_platform_url, resolve_publish_url
 
 
 def _mark_failed(
@@ -103,8 +103,12 @@ def run_publish_task(self, task_id: str) -> None:  # type: ignore[no-untyped-def
             result_metadata = result.metadata or {}
             task.provider_container_id = result.provider_container_id
             task.platform_post_id = result.platform_post_id
-            task.publish_url = result.publish_url or normalize_web_url(
-                result_metadata.get("permalink") or result_metadata.get("watch_url")
+            task.publish_url = resolve_publish_url(
+                platform.code,
+                result.platform_post_id,
+                result.publish_url
+                or result_metadata.get("permalink")
+                or result_metadata.get("watch_url"),
             )
             task.platform_url = (
                 result.platform_url

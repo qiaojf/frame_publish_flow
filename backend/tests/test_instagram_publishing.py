@@ -183,6 +183,22 @@ def test_publish_waits_for_finished_then_returns_distinct_media_id():
     }
 
 
+def test_publish_builds_post_url_from_media_id_when_response_has_no_permalink():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith(f"/{IG_USER_ID}/media"):
+            return httpx.Response(200, json={"id": "container_without_permalink"})
+        if request.url.path.endswith("/container_without_permalink"):
+            return httpx.Response(200, json={"status_code": "FINISHED"})
+        if request.url.path.endswith(f"/{IG_USER_ID}/media_publish"):
+            return httpx.Response(200, json={"id": "Dd2s93-gYEZ"})
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    result = asyncio.run(make_instagram_adapter(handler).publish_video(publish_request()))
+
+    assert result.platform_post_id == "Dd2s93-gYEZ"
+    assert result.publish_url == "https://www.instagram.com/p/Dd2s93-gYEZ/"
+
+
 def test_processing_timeout_does_not_call_media_publish():
     clock = FakeClock()
     publish_calls = 0

@@ -22,7 +22,7 @@
         <section v-if="resultTasks.length" class="surface result-section">
           <div class="surface-header"><div><h2>{{ t('publish.currentTasks') }}</h2><p>{{ t('publish.independentStatuses') }}</p></div><el-button text type="primary" @click="$router.push('/publish/history')">{{ t('publish.allRecords') }}</el-button></div>
           <div class="surface-body publish-result-list">
-            <div v-for="task in resultTasks" :key="task.id" class="publish-result"><div><strong>{{ task.platform_name }}</strong><div class="item-meta">{{ task.account_name || t('common.defaultAccount') }} · <span class="mono">{{ task.id }}</span></div><p v-if="task.error_message" class="danger-text section-note">{{ getBusinessErrorMessage(task.error_code, task.error_message) }}</p></div><div><StatusTag :status="task.status" /><div v-if="task.publish_url" style="margin-top: 7px"><a class="link-button" :href="task.publish_url" target="_blank" rel="noopener">{{ t('publish.openResult') }}</a></div></div></div>
+            <div v-for="task in resultTasks" :key="task.id" class="publish-result"><div><strong>{{ task.platform_name }}</strong><div class="item-meta">{{ task.account_name || t('common.defaultAccount') }} · <span class="mono">{{ task.id }}</span></div><p v-if="task.error_message" class="danger-text section-note">{{ getBusinessErrorMessage(task.error_code, task.error_message) }}</p></div><div><StatusTag :status="task.status" /><div v-if="cleanUrl(task.publish_url)" style="margin-top: 7px"><a class="link-button" :href="cleanUrl(task.publish_url)" target="_blank" rel="noopener">{{ t('publish.openResult') }}</a></div></div></div>
           </div>
         </section>
       </div>
@@ -68,6 +68,7 @@ import type { VideoAsset } from '@/types/video'
 import type { PublishPlatform } from '@/types/platform'
 import type { PublishTask } from '@/types/publish'
 import { getBusinessErrorMessage, getErrorMessage } from '@/utils/errors'
+import { cleanUrl } from '@/utils/url'
 
 const route = useRoute()
 const { t } = useI18n()
