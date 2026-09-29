@@ -241,6 +241,8 @@ class PublishingService:
             video_url=video.video_url,
             platform_name=platform.name,
             account_name=account.name,
+            platform_code=platform.code,
+            account=account,
         )
 
     @classmethod

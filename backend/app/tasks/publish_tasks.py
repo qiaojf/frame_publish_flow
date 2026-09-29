@@ -12,6 +12,7 @@ from app.models import PublishAccount, PublishPlatform, PublishTask, Video
 from app.services.audit import add_audit_log
 from app.storage import get_storage
 from app.tasks.celery_app import celery_app
+from app.utils.publish_urls import normalize_web_url, resolve_platform_url
 
 
 def _mark_failed(
@@ -21,7 +22,7 @@ def _mark_failed(
     *,
     provider_container_id: str | None = None,
     platform_post_id: str | None = None,
-    platform_post_url: str | None = None,
+    publish_url: str | None = None,
 ) -> None:
     with SessionLocal() as db:
         task = db.get(PublishTask, task_id)
@@ -34,8 +35,8 @@ def _mark_failed(
             task.provider_container_id = provider_container_id
         if platform_post_id:
             task.platform_post_id = platform_post_id
-        if platform_post_url:
-            task.platform_post_url = platform_post_url
+        if publish_url:
+            task.publish_url = publish_url
         task.completed_at = datetime.now(UTC)
         add_audit_log(
             db,
@@ -99,9 +100,17 @@ def run_publish_task(self, task_id: str) -> None:  # type: ignore[no-untyped-def
                 existing_platform_post_id=task.platform_post_id,
             )
             result = asyncio.run(adapter.publish_video(request))
+            result_metadata = result.metadata or {}
             task.provider_container_id = result.provider_container_id
             task.platform_post_id = result.platform_post_id
-            task.platform_post_url = result.platform_post_url
+            task.publish_url = result.publish_url or normalize_web_url(
+                result_metadata.get("permalink") or result_metadata.get("watch_url")
+            )
+            task.platform_url = (
+                result.platform_url
+                or normalize_web_url(result_metadata.get("platform_url"))
+                or resolve_platform_url(platform.code, account)
+            )
             if result.status == "processing":
                 task.status = PublishStatus.PUBLISHING
                 db.commit()
@@ -143,7 +152,7 @@ def run_publish_task(self, task_id: str) -> None:  # type: ignore[no-untyped-def
             str(exc),
             provider_container_id=getattr(exc, "container_id", None),
             platform_post_id=getattr(exc, "video_id", None),
-            platform_post_url=(
+            publish_url=(
                 f"https://www.youtube.com/watch?v={exc.video_id}"
                 if getattr(exc, "video_id", None)
                 else None

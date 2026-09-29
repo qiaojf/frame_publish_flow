@@ -36,6 +36,15 @@ class PublishResult:
     platform_post_url: str | None = None
     provider_container_id: str | None = None
     metadata: dict[str, Any] | None = None
+    publish_url: str | None = None
+    platform_url: str | None = None
+
+    def __post_init__(self) -> None:
+        """Keep the former platform_post_url name compatible with canonical publish_url."""
+        if self.publish_url is None:
+            self.publish_url = self.platform_post_url
+        elif self.platform_post_url is None:
+            self.platform_post_url = self.publish_url
 
 
 class PublishPlatformAdapter(ABC):

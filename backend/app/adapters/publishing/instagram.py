@@ -13,6 +13,7 @@ from app.adapters.publishing.configured import ConfiguredPublishAdapter
 from app.core.logging import logger
 from app.core.security import decrypt_secret
 from app.models import PublishAccount, PublishPlatform
+from app.utils.publish_urls import normalize_web_url, resolve_platform_url
 
 
 _API_VERSION_PATTERN = re.compile(r"^v\d+\.\d+$")
@@ -447,7 +448,9 @@ class InstagramPublishAdapter(ConfiguredPublishAdapter):
             container_id=container_id,
         )
 
-    async def publish_media(self, client: httpx.AsyncClient, container_id: str) -> str:
+    async def publish_media(
+        self, client: httpx.AsyncClient, container_id: str
+    ) -> tuple[str, str | None]:
         stage = "PUBLISH_MEDIA"
         logger.info(
             "instagram_publish_started",
@@ -493,7 +496,9 @@ class InstagramPublishAdapter(ConfiguredPublishAdapter):
             container_id=container_id,
             media_id=result,
         )
-        return result
+        return result, normalize_web_url(
+            response_payload.get("permalink") or response_payload.get("permalink_url")
+        )
 
     async def publish_video(self, request: PublishRequest) -> PublishResult:
         configured, message, details = self.configuration_status()
@@ -508,10 +513,12 @@ class InstagramPublishAdapter(ConfiguredPublishAdapter):
         async with httpx.AsyncClient(timeout=timeout, transport=self._transport) as client:
             container_id = await self.create_media_container(client, payload)
             await self.wait_for_container(client, container_id)
-            media_id = await self.publish_media(client, container_id)
+            media_id, permalink = await self.publish_media(client, container_id)
         return PublishResult(
             status="success",
             platform_post_id=media_id,
+            publish_url=permalink,
+            platform_url=resolve_platform_url("instagram", self.account),
             provider_container_id=container_id,
-            metadata={"container_id": container_id, "media_id": media_id, "permalink": None},
+            metadata={"container_id": container_id, "media_id": media_id, "permalink": permalink},
         )

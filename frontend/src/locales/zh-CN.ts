@@ -104,6 +104,8 @@ const zhCN = {
     publishFailed: '发布失败', resultLoadFailed: '发布结果加载失败', postIdCopied: 'Post ID 已复制', copyFailed: '复制失败，请手动选择 ID',
     typePost: '图文', typeVideo: '视频', postId: '帖子 ID', containerId: '容器 ID', uploadId: '上传 ID',
     fieldVideoUrl: '公网视频 URL', fieldCaption: '平台文案', fieldShareToFeed: '同时分享到动态',
+    viewPublishedContent: '查看发布内容',
+    openPlatformHome: '打开平台主页',
   },
   admin: {
     eyebrow: '系统管理', usersTitle: '用户管理', usersIntro: '管理系统账号、角色与启用状态。角色校验最终由后端执行。', addUser: '新增用户',

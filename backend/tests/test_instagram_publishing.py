@@ -67,7 +67,7 @@ def make_instagram_adapter(
     account = PublishAccount(
         platform_id=platform.id,
         name="Instagram test account",
-        account_identifier="instagram-test",
+        account_identifier="creator.name",
         ig_user_id=IG_USER_ID,
         access_token_encrypted=encrypt_secret(ACCESS_TOKEN),
         extra_config={},
@@ -154,7 +154,13 @@ def test_publish_waits_for_finished_then_returns_distinct_media_id():
             return httpx.Response(200, json={"id": "container_123", "status_code": status})
         if request.url.path.endswith(f"/{IG_USER_ID}/media_publish"):
             assert form_values(request)["creation_id"] == ["container_123"]
-            return httpx.Response(200, json={"id": "media_456"})
+            return httpx.Response(
+                200,
+                json={
+                    "id": "media_456",
+                    "permalink": "https://www.instagram.com/reel/ABC123/",
+                },
+            )
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
     result = asyncio.run(make_instagram_adapter(handler).publish_video(publish_request()))
@@ -168,10 +174,12 @@ def test_publish_waits_for_finished_then_returns_distinct_media_id():
     assert result.status == "success"
     assert result.provider_container_id == "container_123"
     assert result.platform_post_id == "media_456"
+    assert result.publish_url == "https://www.instagram.com/reel/ABC123/"
+    assert result.platform_url == "https://www.instagram.com/creator.name/"
     assert result.metadata == {
         "container_id": "container_123",
         "media_id": "media_456",
-        "permalink": None,
+        "permalink": "https://www.instagram.com/reel/ABC123/",
     }
 
 
@@ -373,6 +381,8 @@ def test_publish_worker_persists_instagram_ids(db, make_user, make_video, make_p
                 status="success",
                 provider_container_id="container_saved",
                 platform_post_id="media_saved",
+                publish_url="https://www.instagram.com/reel/WORKER123/",
+                platform_url="https://www.instagram.com/worker.creator/",
             )
 
     monkeypatch.setattr(
@@ -385,6 +395,8 @@ def test_publish_worker_persists_instagram_ids(db, make_user, make_video, make_p
     assert saved.status == PublishStatus.SUCCESS
     assert saved.provider_container_id == "container_saved"
     assert saved.platform_post_id == "media_saved"
+    assert saved.publish_url == "https://www.instagram.com/reel/WORKER123/"
+    assert saved.platform_url == "https://www.instagram.com/worker.creator/"
     response = PublishTaskOut.from_model(
         saved,
         platform_name="Instagram",
@@ -392,6 +404,8 @@ def test_publish_worker_persists_instagram_ids(db, make_user, make_video, make_p
     )
     assert response.provider_container_id == "container_saved"
     assert response.platform_post_id == "media_saved"
+    assert response.publish_url == "https://www.instagram.com/reel/WORKER123/"
+    assert response.platform_url == "https://www.instagram.com/worker.creator/"
 
 
 def test_publish_worker_persists_structured_error_and_container(

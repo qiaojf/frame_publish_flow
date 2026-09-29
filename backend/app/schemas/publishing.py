@@ -5,7 +5,8 @@ from typing import Any
 from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 from app.core.enums import PublishStatus
-from app.models import PublishTask
+from app.models import PublishAccount, PublishTask
+from app.utils.publish_urls import resolve_platform_url
 
 
 class PublishTarget(BaseModel):
@@ -71,6 +72,7 @@ class PublishTaskOut(BaseModel):
     published_at: datetime | None = None
     created_at: datetime
     publish_url: str | None = None
+    platform_url: str | None = None
     error_code: str | None = None
     error_message: str | None = None
     progress: int = 0
@@ -89,8 +91,10 @@ class PublishTaskOut(BaseModel):
         video_url: str | None = None,
         platform_name: str,
         account_name: str,
+        platform_code: str | None = None,
+        account: PublishAccount | None = None,
     ) -> "PublishTaskOut":
-        publish_url = task.platform_post_url
+        publish_url = task.publish_url
         if task.platform_post_id and (
             not publish_url
             or publish_url.startswith("https://mock.local/posts/")
@@ -112,6 +116,10 @@ class PublishTaskOut(BaseModel):
             published_at=task.completed_at,
             created_at=task.created_at,
             publish_url=publish_url,
+            platform_url=(
+                task.platform_url
+                or (resolve_platform_url(platform_code, account) if platform_code and account else None)
+            ),
             error_code=task.error_code,
             error_message=task.error_message,
             progress=task.progress,

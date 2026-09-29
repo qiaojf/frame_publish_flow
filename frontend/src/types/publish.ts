@@ -30,6 +30,7 @@ export interface PublishTask {
   published_at?: string
   created_at: string
   publish_url?: string
+  platform_url?: string
   platform_post_id?: string
   provider_container_id?: string
   provider_upload_id?: string

@@ -83,6 +83,7 @@ def make_adapter(
         platform_id=platform.id,
         name="YouTube test account",
         account_identifier="youtube-test",
+        channel_id="UC_TEST_CHANNEL",
         client_id_encrypted=encrypt_secret(CLIENT_ID),
         client_secret_encrypted=encrypt_secret(CLIENT_SECRET),
         access_token_encrypted=encrypt_secret(ACCESS_TOKEN),
@@ -188,6 +189,8 @@ def test_resumable_upload_uses_local_file_and_returns_video_id(tmp_path: Path):
     assert result.status == "success"
     assert result.platform_post_id == VIDEO_ID
     assert result.platform_post_url == f"https://www.youtube.com/watch?v={VIDEO_ID}"
+    assert result.publish_url == f"https://www.youtube.com/watch?v={VIDEO_ID}"
+    assert result.platform_url == "https://www.youtube.com/channel/UC_TEST_CHANNEL"
     create_request = seen[0]
     assert create_request.url.params["uploadType"] == "resumable"
     assert create_request.url.params["part"] == "snippet,status"

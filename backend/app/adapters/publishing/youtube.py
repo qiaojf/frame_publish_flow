@@ -16,6 +16,7 @@ from app.adapters.publishing.configured import ConfiguredPublishAdapter
 from app.core.logging import logger
 from app.core.security import decrypt_secret, encrypt_secret
 from app.models import PublishAccount, PublishPlatform
+from app.utils.publish_urls import resolve_platform_url
 
 
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
@@ -688,7 +689,8 @@ class YouTubePublishAdapter(ConfiguredPublishAdapter):
                 return PublishResult(
                     status="success",
                     platform_post_id=video_id,
-                    platform_post_url=f"https://www.youtube.com/watch?v={video_id}",
+                    publish_url=f"https://www.youtube.com/watch?v={video_id}",
+                    platform_url=resolve_platform_url("youtube", self.account),
                     metadata={"video_id": video_id, "processing_status": status},
                 )
             if status in _PROCESSING_FAILURES:
@@ -788,7 +790,8 @@ class YouTubePublishAdapter(ConfiguredPublishAdapter):
             return PublishResult(
                 status="success",
                 platform_post_id=video_id,
-                platform_post_url=f"https://www.youtube.com/watch?v={video_id}",
+                publish_url=f"https://www.youtube.com/watch?v={video_id}",
+                platform_url=resolve_platform_url("youtube", self.account),
                 metadata={"video_id": video_id, "processing_status": status},
             )
         if status in _PROCESSING_FAILURES:
@@ -810,6 +813,7 @@ class YouTubePublishAdapter(ConfiguredPublishAdapter):
         return PublishResult(
             status="processing",
             platform_post_id=video_id,
-            platform_post_url=f"https://www.youtube.com/watch?v={video_id}",
+            publish_url=f"https://www.youtube.com/watch?v={video_id}",
+            platform_url=resolve_platform_url("youtube", self.account),
             metadata={"video_id": video_id, "processing_status": status},
         )

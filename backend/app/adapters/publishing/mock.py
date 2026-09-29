@@ -23,14 +23,14 @@ class MockPublishAdapter(PublishPlatformAdapter):
         return PublishResult(
             status="success",
             platform_post_id=post_id,
-            platform_post_url=f"/publish/{post_id}",
+            publish_url=f"/publish/{post_id}",
         )
 
     async def get_publish_status(self, platform_post_id: str) -> PublishResult:
         return PublishResult(
             status="success",
             platform_post_id=platform_post_id,
-            platform_post_url=f"/publish/{platform_post_id}",
+            publish_url=f"/publish/{platform_post_id}",
         )
 
     async def refresh_token(self) -> None:

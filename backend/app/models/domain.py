@@ -17,7 +17,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 from sqlalchemy.types import JSON
 
 from app.core.enums import AuditResult, GenerationStatus, GenerationType, PublishStatus, UserRole
@@ -285,7 +285,9 @@ class PublishTask(TimestampMixin, Base):
     provider_upload_id: Mapped[str | None] = mapped_column(String(255))
     provider_container_id: Mapped[str | None] = mapped_column(String(255))
     platform_post_id: Mapped[str | None] = mapped_column(String(255))
-    platform_post_url: Mapped[str | None] = mapped_column(String(1000))
+    publish_url: Mapped[str | None] = mapped_column("platform_post_url", String(1000))
+    platform_post_url = synonym("publish_url")
+    platform_url: Mapped[str | None] = mapped_column(String(1000))
     idempotency_key: Mapped[str] = mapped_column(String(160), unique=True, nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(120))
     error_message: Mapped[str | None] = mapped_column(Text)
